@@ -32,10 +32,10 @@
 #define USBD_MANUFACTURER_STRING      "JBR Engineering Research Ltd" /* Add your manufacturer string */
 #define USBD_PRODUCT_HS_STRING        "ANT USB-m Stick" /* Add your product High Speed string */
 #define USBD_PRODUCT_FS_STRING        "ANT USB-m Stick" /* Add your product Full Speed string */
-#define USBD_CONFIGURATION_HS_STRING  "ANT USB-m Stick Config" /* Add your configuration Full Speed string */
-#define USBD_INTERFACE_HS_STRING      "ANT USB-m Stick Interface" /* Add your Interface Full Speed string */
-#define USBD_CONFIGURATION_FS_STRING  "ANT USB-m Stick Config" /* Add your configuration Full Speed string */
-#define USBD_INTERFACE_FS_STRING      "ANT USB-m Stick Interface" /* Add your Interface Full Speed string */
+#define USBD_CONFIGURATION_HS_STRING  "ANT USB-m Stick Cfg" /* Add your configuration Full Speed string */
+#define USBD_INTERFACE_HS_STRING      "ANT USB-m Stick Int" /* Add your Interface Full Speed string */
+#define USBD_CONFIGURATION_FS_STRING  "ANT USB-m Stick Cfg" /* Add your configuration Full Speed string */
+#define USBD_INTERFACE_FS_STRING      "ANT USB-m Stick Int" /* Add your Interface Full Speed string */
 
 /* Private macro -------------------------------------------------------------*/
 /* Private function prototypes -----------------------------------------------*/
@@ -51,10 +51,6 @@ uint8_t *USBD_Class_InterfaceStrDescriptor(USBD_SpeedTypeDef speed, uint16_t *le
 uint8_t *USBD_Class_UserStrDescriptor(USBD_SpeedTypeDef speed, uint8_t idx, uint16_t *length);
 #endif /* USB_CLASS_USER_STRING_DESC */
 
-#if ((USBD_LPM_ENABLED == 1) || (USBD_CLASS_BOS_ENABLED == 1))
-uint8_t *USBD_USR_BOSDescriptor(USBD_SpeedTypeDef speed , uint16_t *length);
-#endif
-
 /* Private variables ---------------------------------------------------------*/
 USBD_DescriptorsTypeDef ANT_Desc =
 {
@@ -67,10 +63,6 @@ USBD_DescriptorsTypeDef ANT_Desc =
   USBD_Class_InterfaceStrDescriptor,
 #if (USBD_CLASS_USER_STRING_DESC == 1)
   USBD_Class_UserStrDescriptor,
-#endif
-
-#if ((USBD_LPM_ENABLED == 1) || (USBD_CLASS_BOS_ENABLED == 1))
-  USBD_USR_BOSDescriptor,
 #endif
 };
 
@@ -98,7 +90,7 @@ __ALIGN_BEGIN uint8_t USBD_DeviceDesc[USB_LEN_DEV_DESC] __ALIGN_END =
   LOBYTE(USBD_PID),           /* idVendor */
   HIBYTE(USBD_PID),           /* idVendor */
   0x00,                       /* bcdDevice rel. 2.00 */
-  0x02,
+  0x01,
   USBD_IDX_MFC_STR,           /* Index of manufacturer string */
   USBD_IDX_PRODUCT_STR,       /* Index of product string */
   USBD_IDX_SERIAL_STR,        /* Index of serial number string */

@@ -81,6 +81,8 @@ extern USBD_ClassTypeDef USBD_TEMPLATE_ClassDriver;
 /** @defgroup USB_CORE_Exported_Functions
   * @{
   */
+uint8_t USBD_TEMPLATE_Transmit(USBD_HandleTypeDef *pdev, uint8_t* buf, uint16_t length);
+
 /**
   * @}
   */
