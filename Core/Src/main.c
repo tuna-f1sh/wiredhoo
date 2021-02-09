@@ -26,7 +26,6 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "stream_buffer.h"
 #include "usbd_core.h"
 #include "usbd_desc.h"
 #include "usbd_vendor.h"
@@ -50,7 +49,6 @@
 
 /* USER CODE BEGIN PV */
 USBD_HandleTypeDef hUsbDeviceFS;
-StreamBufferHandle_t xStreamBuffer = NULL;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
