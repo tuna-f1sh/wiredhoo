@@ -39,8 +39,11 @@
 #include <stdbool.h>
 #include "cmsis_os.h"
 #include "message_buffer.h"
+#include "usbd_core.h"
+#include "usbd_desc.h"
 #include "usbd_vendor.h"
 #include "usbd_ctlreq.h"
+#include "main.h"
 
 
 /** @addtogroup STM32_USB_DEVICE_LIBRARY
@@ -102,8 +105,8 @@ static uint8_t *USBD_TEMPLATE_GetDeviceQualifierDesc(uint16_t *length);
   * @{
   */
 volatile bool data_in_busy = false;
-uint8_t data_out_buffer[1024] = {};
-extern MessageBufferHandle_t xMessageBuffer;
+uint8_t data_out_buffer[ANT_EP_OUT_BUFFER_SIZE] = {};
+extern MessageBufferHandle_t xAntMsgBuffer;
 
 USBD_ClassTypeDef USBD_TEMPLATE_ClassDriver =
 {
@@ -289,7 +292,7 @@ static uint8_t  USBD_TEMPLATE_DataOut(USBD_HandleTypeDef *pdev,
                                       uint8_t epnum)
 {
   size_t const bytes_received = USBD_LL_GetRxDataSize(pdev, epnum);
-  xMessageBufferSendFromISR(xMessageBuffer, data_out_buffer, bytes_received, NULL);
+  xMessageBufferSendFromISR(xAntMsgBuffer, data_out_buffer, bytes_received, NULL);
   USBD_LL_PrepareReceive(pdev, TEMPLATE_EPOUT_ADDR, data_out_buffer, USB_FS_MAX_PACKET_SIZE);
   return USBD_OK;
 }
@@ -311,6 +314,17 @@ uint8_t *USBD_TEMPLATE_GetDeviceQualifierDesc(uint16_t *length)
   * @}
   */
 
+void USBD_TEMPLATE_Start(USBD_HandleTypeDef *pdev) {
+  if (USBD_Init(pdev, &ANT_Desc, 0) != USBD_OK) {
+    Error_Handler();
+  }
+  if (USBD_RegisterClass(pdev, &USBD_TEMPLATE_ClassDriver) != USBD_OK) {
+    Error_Handler();
+  }
+  if (USBD_Start(pdev) != USBD_OK) {
+    Error_Handler();
+  }
+}
 
 uint8_t USBD_TEMPLATE_Transmit(USBD_HandleTypeDef *pdev, uint8_t* buf, uint16_t length)
 {

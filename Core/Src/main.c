@@ -27,7 +27,6 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "usbd_core.h"
-#include "usbd_desc.h"
 #include "usbd_vendor.h"
 /* USER CODE END Includes */
 
@@ -94,15 +93,7 @@ int main(void)
   MX_USB_OTG_FS_PCD_Init();
   MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
-  if (USBD_Init(&hUsbDeviceFS, &ANT_Desc, 0) != USBD_OK) {
-    Error_Handler();
-  }
-  if (USBD_RegisterClass(&hUsbDeviceFS, &USBD_TEMPLATE_ClassDriver) != USBD_OK) {
-    Error_Handler();
-  }
-  if (USBD_Start(&hUsbDeviceFS) != USBD_OK) {
-    Error_Handler();
-  }
+  USBD_TEMPLATE_Start(&hUsbDeviceFS);
   /* USER CODE END 2 */
 
   /* Init scheduler */
@@ -202,6 +193,8 @@ void Error_Handler(void)
   __disable_irq();
   while (1)
   {
+    HAL_GPIO_TogglePin(RLED_GPIO_Port, RLED_Pin);
+    HAL_Delay(100);
   }
   /* USER CODE END Error_Handler_Debug */
 }

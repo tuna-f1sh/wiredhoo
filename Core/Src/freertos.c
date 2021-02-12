@@ -31,6 +31,7 @@
 #include "message_buffer.h"
 #include "usart.h"
 #include "usbd_vendor.h"
+#include "utilities.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -50,13 +51,14 @@
 
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN Variables */
-MessageBufferHandle_t xMessageBuffer = NULL;
-static uint8_t ucStorageBuffer[ 1024 ];
-static StaticMessageBuffer_t xMessageBufferStruct;
+MessageBufferHandle_t xAntMsgBuffer = NULL;
+static uint8_t ucStorageBuffer[ANT_EP_OUT_BUFFER_SIZE];
+static StaticMessageBuffer_t xAntMsgBufferStruct;
+static char printBuffer[64];
 
-osThreadId_t printAnt;
-const osThreadAttr_t printAnt_attributes = {
-  .name = "printAnt",
+osThreadId_t antProtocolTask;
+const osThreadAttr_t antProtocolTask_attributes = {
+  .name = "antProtocolTask",
   .priority = (osPriority_t) osPriorityHigh,
   .stack_size = 768
 };
@@ -73,7 +75,7 @@ const osThreadAttr_t defaultTask_attributes = {
 extern USBD_HandleTypeDef hUsbDeviceFS;
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
-void StartPrintAnt(void *argument);
+void AntProtocolTask(void *argument);
 /* USER CODE END FunctionPrototypes */
 
 void StartDefaultTask(void *argument);
@@ -104,7 +106,7 @@ void MX_FREERTOS_Init(void) {
 
   /* USER CODE BEGIN RTOS_QUEUES */
   /* add queues, ... */
-  xMessageBuffer = xMessageBufferCreateStatic(sizeof(ucStorageBuffer), ucStorageBuffer, &xMessageBufferStruct);
+  xAntMsgBuffer = xMessageBufferCreateStatic(sizeof(ucStorageBuffer), ucStorageBuffer, &xAntMsgBufferStruct);
   /* USER CODE END RTOS_QUEUES */
 
   /* Create the thread(s) */
@@ -113,7 +115,7 @@ void MX_FREERTOS_Init(void) {
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
-  printAnt = osThreadNew(StartPrintAnt, NULL, &printAnt_attributes);
+  antProtocolTask = osThreadNew(AntProtocolTask, NULL, &antProtocolTask_attributes);
   /* USER CODE END RTOS_THREADS */
 
   /* USER CODE BEGIN RTOS_EVENTS */
@@ -132,10 +134,17 @@ void MX_FREERTOS_Init(void) {
 void StartDefaultTask(void *argument)
 {
   /* USER CODE BEGIN StartDefaultTask */
+  printf("Default Task Starting\r\n");
   /* Infinite loop */
   for(;;)
   {
     HAL_GPIO_TogglePin(RLED_GPIO_Port, RLED_Pin);
+    // this disables isr so only for debug
+    if (configUSE_STATS_FORMATTING_FUNCTIONS) {
+      printf("Task List\tState\tP\tStack\tNum\r\n");
+      vTaskList(printBuffer);
+      printf(printBuffer);
+    }
     osDelay(1000);
   }
   /* USER CODE END StartDefaultTask */
@@ -143,28 +152,6 @@ void StartDefaultTask(void *argument)
 
 /* Private application code --------------------------------------------------*/
 /* USER CODE BEGIN Application */
-void print_hex(char *string, size_t len)
-{
-  unsigned char *p = (unsigned char *) string;
-
-  for (int i = 0; i < len; i++) {
-    if (! (i % 16) && i)
-      printf("\r\n");
-
-    printf("0x%02x ", p[i]);
-  }
-
-  printf("\r\n");
-}
-
-uint8_t calculate_crc(uint8_t *buffer, size_t len) {
-  uint8_t crc = 0;
-
-  for (int i = 0; i < len; i++)
-    crc ^= buffer[i];
-
-  return crc;
-}
 
 typedef struct {
   uint8_t sync;
@@ -174,8 +161,8 @@ typedef struct {
 
 #define ANT_MESSAGE_SIZE(buffer) buffer[1] + 4
 
-void StartPrintAnt(void *argument) {
-  printf("ANT Plus Print Task\r\n");
+void AntProtocolTask(void *argument) {
+  printf("ANT+ Protocol Task Starting\r\n");
 
   /* Infinite loop */
   for(;;)
@@ -189,7 +176,7 @@ void StartPrintAnt(void *argument) {
     /* Receive the next message from the message buffer.  Wait in the Blocked
        state (so not using any CPU processing time) for a maximum of 100ms for
        a message to become available. */
-    xReceivedBytes = xMessageBufferReceive( xMessageBuffer,
+    xReceivedBytes = xMessageBufferReceive( xAntMsgBuffer,
         ( void * ) ucRxData,
         sizeof( ucRxData ),
         xBlockTime );
@@ -197,7 +184,10 @@ void StartPrintAnt(void *argument) {
     HAL_GPIO_WritePin(GLED_GPIO_Port, GLED_Pin, 1);
 
     if( xReceivedBytes > 0 ) {
-      print_hex((char*) ucRxData, xReceivedBytes);
+      if (DEBUG) {
+        printf("ANT+ Rx: ");
+        print_hex((char*) ucRxData, xReceivedBytes);
+      }
       HAL_GPIO_WritePin(GLED_GPIO_Port, GLED_Pin, 0);
 
       ANT_StdMsgHeader_t header;
@@ -226,7 +216,10 @@ void StartPrintAnt(void *argument) {
           break;
       }
 
-      print_hex((char*) reply, ANT_MESSAGE_SIZE(reply));
+      if (DEBUG) {
+        printf("ANT+ Tx: ");
+        print_hex((char*) reply, ANT_MESSAGE_SIZE(reply));
+      }
 
       // TODO replace with message stream for replies
       while (status != USBD_OK) {

@@ -45,6 +45,7 @@ extern "C" {
 #define TEMPLATE_EPOUT_ADDR                0x01
 
 #define USB_TEMPLATE_CONFIG_DESC_SIZ       32U
+#define ANT_EP_OUT_BUFFER_SIZE             1024U
 
 /**
   * @}
@@ -81,6 +82,7 @@ extern USBD_ClassTypeDef USBD_TEMPLATE_ClassDriver;
 /** @defgroup USB_CORE_Exported_Functions
   * @{
   */
+void USBD_TEMPLATE_Start(USBD_HandleTypeDef *pdev);
 uint8_t USBD_TEMPLATE_Transmit(USBD_HandleTypeDef *pdev, uint8_t* buf, uint16_t length);
 
 /**
