@@ -226,8 +226,8 @@
 ///////////////////////////////////////////////////////////////
 // Macros
 ///////////////////////////////////////////////////////////////
-#define HIGH_BYTE(usWord) (UCHAR)((usWord >> 8) & 0x00FF)
-#define LOW_BYTE(usWord)  (UCHAR)(usWord & 0x00FF)
+#define HIGH_BYTE(usWord) (UCHAR)(((usWord) >> 8) & 0x00FF)
+#define LOW_BYTE(usWord)  (UCHAR)((usWord) & 0x00FF)
 #define BYTE0(x)                      ((UCHAR) x & 0xFF)
 #define BYTE1(x)                      ((UCHAR) (x >> 8) & 0xFF)
 #define BYTE2(x)                      ((UCHAR) (x >> 16) & 0xFF)

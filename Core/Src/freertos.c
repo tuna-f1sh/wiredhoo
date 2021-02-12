@@ -32,6 +32,7 @@
 #include "usart.h"
 #include "usbd_vendor.h"
 #include "utilities.h"
+#include "ant.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -138,7 +139,7 @@ void StartDefaultTask(void *argument)
   /* Infinite loop */
   for(;;)
   {
-    HAL_GPIO_TogglePin(RLED_GPIO_Port, RLED_Pin);
+    HAL_GPIO_TogglePin(BLED_GPIO_Port, BLED_Pin);
     // this disables isr so only for debug
     if (configUSE_STATS_FORMATTING_FUNCTIONS) {
       printf("Task List\tState\tP\tStack\tNum\r\n");
@@ -152,22 +153,13 @@ void StartDefaultTask(void *argument)
 
 /* Private application code --------------------------------------------------*/
 /* USER CODE BEGIN Application */
-
-typedef struct {
-  uint8_t sync;
-  uint8_t len;
-  uint8_t id;
-} ANT_StdMsgHeader_t;
-
-#define ANT_MESSAGE_SIZE(buffer) buffer[1] + 4
-
 void AntProtocolTask(void *argument) {
   printf("ANT+ Protocol Task Starting\r\n");
 
   /* Infinite loop */
   for(;;)
   {
-    uint8_t reply[64];
+    uint8_t reply[ANT_MAX_SIZE] = {0};
     uint8_t ucRxData[64];
     size_t xReceivedBytes;
     const TickType_t xBlockTime = pdMS_TO_TICKS( 100 );
@@ -176,10 +168,10 @@ void AntProtocolTask(void *argument) {
     /* Receive the next message from the message buffer.  Wait in the Blocked
        state (so not using any CPU processing time) for a maximum of 100ms for
        a message to become available. */
-    xReceivedBytes = xMessageBufferReceive( xAntMsgBuffer,
-        ( void * ) ucRxData,
-        sizeof( ucRxData ),
-        xBlockTime );
+    xReceivedBytes = xMessageBufferReceive(xAntMsgBuffer,
+        (void *) ucRxData,
+        sizeof(ucRxData),
+        xBlockTime);
     // clear after block allows blink on rx
     HAL_GPIO_WritePin(GLED_GPIO_Port, GLED_Pin, 1);
 
@@ -190,41 +182,22 @@ void AntProtocolTask(void *argument) {
       }
       HAL_GPIO_WritePin(GLED_GPIO_Port, GLED_Pin, 0);
 
-      ANT_StdMsgHeader_t header;
-      memcpy(&header, &ucRxData, 3);
 
-      switch (header.id) {
-        case 0x4A:
-          header.len = 0x01;
-          header.id = 0x6F;
-          memcpy(&reply, &header, 3);
-          reply[3] = 0x20;
-          reply[4] = calculate_crc(reply, ANT_MESSAGE_SIZE(reply) - 1);
-          break;
-        case 0x4D:
-          header.len = 0x07;
-          header.id = 0x54;
-          memcpy(&reply, &header, 3);
-          reply[3] = 0x04;
-          reply[4] = 0x04;
-          reply[6] = 0xBA;
-          reply[7] = 0x36;
-          reply[9] = 0xDF;
-          reply[10] = calculate_crc(reply, ANT_MESSAGE_SIZE(reply) - 1);
-          break;
-        default:
-          break;
-      }
+      if (process_ant_message(ucRxData, xReceivedBytes, reply) == MESG_OK) {
+        if (DEBUG) {
+          printf("ANT+ Tx: ");
+          print_hex((char*) reply, ANT_MESSAGE_SIZE(reply));
+        }
 
-      if (DEBUG) {
-        printf("ANT+ Tx: ");
-        print_hex((char*) reply, ANT_MESSAGE_SIZE(reply));
-      }
-
-      // TODO replace with message stream for replies
-      while (status != USBD_OK) {
-        status = USBD_TEMPLATE_Transmit(&hUsbDeviceFS, reply, ANT_MESSAGE_SIZE(reply));
-        osDelay(2);
+        // TODO replace with message stream for replies
+        while (status != USBD_OK) {
+          status = USBD_TEMPLATE_Transmit(&hUsbDeviceFS, reply, ANT_MESSAGE_SIZE(reply));
+          osDelay(2);
+        }
+      } else {
+        if (DEBUG) {
+          printf("ANT+ Rx Error!");
+        }
       }
     }
   }

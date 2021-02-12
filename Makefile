@@ -46,6 +46,7 @@ Core/Src/usbd_ctlreq.c \
 Core/Src/usbd_desc.c \
 Core/Src/usbd_vendor.c \
 Core/Src/utilities.c \
+Core/Src/ant.c \
 Core/Src/syscalls.c \
 Core/Src/stm32f4xx_it.c \
 Core/Src/stm32f4xx_hal_msp.c \
