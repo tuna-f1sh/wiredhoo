@@ -139,7 +139,7 @@ void StartDefaultTask(void *argument)
   /* Infinite loop */
   for(;;)
   {
-    HAL_GPIO_TogglePin(BLED_GPIO_Port, BLED_Pin);
+    HAL_GPIO_TogglePin(BLINK_LED_PORT, BLINK_LED);
     // this disables isr so only for debug
     if (configUSE_STATS_FORMATTING_FUNCTIONS) {
       printf("Task List\tState\tP\tStack\tNum\r\n");
@@ -173,19 +173,20 @@ void AntProtocolTask(void *argument) {
         sizeof(ucRxData),
         xBlockTime);
     // clear after block allows blink on rx
-    HAL_GPIO_WritePin(GLED_GPIO_Port, GLED_Pin, 1);
+    HAL_GPIO_WritePin(USBD_RX_LED_PORT, USBD_RX_LED, 1);
 
     if( xReceivedBytes > 0 ) {
       if (DEBUG) {
         printf("ANT+ Rx: ");
         print_hex((char*) ucRxData, xReceivedBytes);
       }
-      HAL_GPIO_WritePin(GLED_GPIO_Port, GLED_Pin, 0);
+      HAL_GPIO_WritePin(USBD_RX_LED_PORT, USBD_RX_LED, 0);
 
 
-      if (process_ant_message(ucRxData, xReceivedBytes, reply) == MESG_OK) {
+      if (process_ant_message(ucRxData, xReceivedBytes, reply) != MESG_UNKNOWN_ID) {
         if (DEBUG) {
-          printf("ANT+ Tx: ");
+          if (reply[2] == 0xAE) printf("ANT+ Rx Error, Tx: ");
+          else printf("ANT+ Tx: ");
           print_hex((char*) reply, ANT_MESSAGE_SIZE(reply));
         }
 
@@ -200,6 +201,9 @@ void AntProtocolTask(void *argument) {
         }
       }
     }
+
+    // TODO check TransmitBytes stream from channel event and transmit these on open channels with matching device type and id/0, all if Rx scan on
+    // TODO check extended enabled and append extended device info to message
   }
 }
 /* USER CODE END Application */

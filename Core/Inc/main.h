@@ -66,6 +66,13 @@ void Error_Handler(void);
 #define BLED_GPIO_Port GPIOB
 /* USER CODE BEGIN Private defines */
 #define DEBUG                     1
+
+#define USBD_RX_LED_PORT          RLED_GPIO_Port
+#define USBD_RX_LED               RLED_Pin
+#define BLINK_LED_PORT            BLED_GPIO_Port
+#define BLINK_LED                 BLED_Pin
+#define ANT_CONTROL_LED_PORT      GLED_GPIO_Port
+#define ANT_CONTROL_LED           GLED_Pin
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus
