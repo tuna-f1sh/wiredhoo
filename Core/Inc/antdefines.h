@@ -232,8 +232,8 @@
 #define BYTE1(x)                      ((UCHAR) (x >> 8) & 0xFF)
 #define BYTE2(x)                      ((UCHAR) (x >> 16) & 0xFF)
 #define BYTE3(x)                      ((UCHAR) (x >> 24) & 0xFF)
-#define MIN(x,y)        (((x)<(y))?(x):(y))
-#define MAX(x,y)        (((x)>(y))?(x):(y))
+/* #define MIN(x,y)        (((x)<(y))?(x):(y)) */
+/* #define MAX(x,y)        (((x)>(y))?(x):(y)) */
 
 
 #endif // !ANTDEFINES_H

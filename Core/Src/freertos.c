@@ -33,6 +33,8 @@
 #include "usbd_vendor.h"
 #include "utilities.h"
 #include "ant.h"
+#include "antmessage.h"
+#include "antdefines.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -52,9 +54,15 @@
 
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN Variables */
+// message buffer holds USBD out (recieved from host)
 MessageBufferHandle_t xAntMsgBuffer = NULL;
-static uint8_t ucStorageBuffer[ANT_EP_OUT_BUFFER_SIZE];
+static uint8_t xAntMsgStorageBuffer[ANT_EP_OUT_BUFFER_SIZE];
 static StaticMessageBuffer_t xAntMsgBufferStruct;
+// message buffer holds simulated Rx wirelss data from ANT devices for sending to host
+MessageBufferHandle_t xAntDeviceRxBuffer = NULL;
+static uint8_t xAntDeviceRxStorageBuffer[ANT_EP_OUT_BUFFER_SIZE];
+static StaticMessageBuffer_t xAntDeviceRxBufferStruct;
+
 static char printBuffer[64];
 
 osThreadId_t antProtocolTask;
@@ -107,7 +115,8 @@ void MX_FREERTOS_Init(void) {
 
   /* USER CODE BEGIN RTOS_QUEUES */
   /* add queues, ... */
-  xAntMsgBuffer = xMessageBufferCreateStatic(sizeof(ucStorageBuffer), ucStorageBuffer, &xAntMsgBufferStruct);
+  xAntMsgBuffer = xMessageBufferCreateStatic(sizeof(xAntMsgStorageBuffer), xAntMsgStorageBuffer, &xAntMsgBufferStruct);
+  xAntDeviceRxBuffer = xMessageBufferCreateStatic(sizeof(xAntDeviceRxStorageBuffer), xAntDeviceRxStorageBuffer, &xAntDeviceRxBufferStruct);
   /* USER CODE END RTOS_QUEUES */
 
   /* Create the thread(s) */
@@ -134,6 +143,9 @@ void MX_FREERTOS_Init(void) {
 /* USER CODE END Header_StartDefaultTask */
 void StartDefaultTask(void *argument)
 {
+  uint8_t tdata[8] = {0};
+  uint8_t tmsg[ANT_MAX_SIZE] = {0};
+
   /* USER CODE BEGIN StartDefaultTask */
   printf("Default Task Starting\r\n");
   /* Infinite loop */
@@ -146,9 +158,23 @@ void StartDefaultTask(void *argument)
       vTaskList(printBuffer);
       printf(printBuffer);
     }
-    osDelay(1000);
+    ant_construct_data_message(MESG_BROADCAST_DATA_ID, MESG_EXTENDED_SIZE, ANT_FAKE_CH_POWER, DEVICE_ID, ANT_DEVTYPE_POWER, ANT_TXTYPE_POWER, tmsg, tdata);
+    xMessageBufferSend(xAntDeviceRxBuffer, tmsg, ANT_MESSAGE_SIZE(tmsg), 0);
+    /* osDelay(1000); */
+    osDelay(PERIOD_TO_MS(ANT_PERIOD_POWER));
   }
   /* USER CODE END StartDefaultTask */
+}
+
+void transmit_message(uint8_t *pBuffer, size_t len, uint8_t block_tick) {
+  uint8_t status = USBD_BUSY;
+  uint8_t block_ticks = 0;
+
+  while (status != USBD_OK && block_ticks < block_tick) {
+    status = USBD_TEMPLATE_Transmit(&hUsbDeviceFS, pBuffer, len);
+    block_ticks += 2;
+    osDelay(2);
+  }
 }
 
 /* Private application code --------------------------------------------------*/
@@ -162,20 +188,16 @@ void AntProtocolTask(void *argument) {
     uint8_t reply[ANT_MAX_SIZE] = {0};
     uint8_t ucRxData[64];
     size_t xReceivedBytes;
-    const TickType_t xBlockTime = pdMS_TO_TICKS( 100 );
-    uint8_t status = USBD_BUSY;
+    const TickType_t xBlockTime = pdMS_TO_TICKS(10);
 
     /* Receive the next message from the message buffer.  Wait in the Blocked
        state (so not using any CPU processing time) for a maximum of 100ms for
        a message to become available. */
-    xReceivedBytes = xMessageBufferReceive(xAntMsgBuffer,
-        (void *) ucRxData,
-        sizeof(ucRxData),
-        xBlockTime);
+    xReceivedBytes = xMessageBufferReceive(xAntMsgBuffer, (void *) ucRxData, sizeof(ucRxData), xBlockTime);
     // clear after block allows blink on rx
     HAL_GPIO_WritePin(USBD_RX_LED_PORT, USBD_RX_LED, 1);
 
-    if( xReceivedBytes > 0 ) {
+    if(xReceivedBytes > 0) {
       if (DEBUG) {
         printf("ANT+ Rx: ");
         print_hex((char*) ucRxData, xReceivedBytes);
@@ -191,9 +213,12 @@ void AntProtocolTask(void *argument) {
         }
 
         // TODO replace with message stream for replies
-        while (status != USBD_OK) {
-          status = USBD_TEMPLATE_Transmit(&hUsbDeviceFS, reply, ANT_MESSAGE_SIZE(reply));
-          osDelay(2);
+        transmit_message(reply, ANT_MESSAGE_SIZE(reply), 20);
+        // close channel request follow with channel event closed
+        if (reply[4] == MESG_CLOSE_CHANNEL_ID && (ucRxData[BUFFER_INDEX_MESG_ID + 1] == MESG_CLOSE_CHANNEL_ID)) {
+          uint8_t data[2] = {0x01, EVENT_CHANNEL_CLOSED};
+          ant_construct_message(MESG_RESPONSE_EVENT_ID, MESG_RESPONSE_EVENT_SIZE, 0, reply, data);
+          transmit_message(reply, ANT_MESSAGE_SIZE(reply), 20);
         }
       } else {
         if (DEBUG) {
@@ -202,8 +227,12 @@ void AntProtocolTask(void *argument) {
       }
     }
 
-    // TODO check TransmitBytes stream from channel event and transmit these on open channels with matching device type and id/0, all if Rx scan on
-    // TODO check extended enabled and append extended device info to message
+    // check for virtual master device messages
+    xReceivedBytes = xMessageBufferReceive(xAntDeviceRxBuffer, (void *) ucRxData, sizeof(ucRxData), xBlockTime);
+    // if there is one, send it on an open assigned channel if there is one
+    if (xReceivedBytes > 0) {
+      ant_process_tx_event(ucRxData, xReceivedBytes);
+    }
   }
 }
 /* USER CODE END Application */

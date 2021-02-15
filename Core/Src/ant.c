@@ -15,7 +15,7 @@
 static uint8_t network_key[FAKE_NETWORKS][8] = {0};
 static const uint32_t device_serial = DEVICE_SERIAL;
 static ANT_Channel_t ant_channels[FAKE_CHANNELS];
-static ANT_Device_t ant_device;
+static ANT_Control_t ant_device;
 static const char* ant_version = ANT_VERSION;
 
 ANT_MessageStatus process_ant_request(uint8_t *pBuffer, size_t len, uint8_t *pReply);
@@ -45,7 +45,8 @@ ANT_MessageStatus process_ant_message(uint8_t *pMessage, size_t len, uint8_t *pR
             pReply[2] = MESG_START_UP;
             // re-initialise channels to unassigned state or maybe even reset after send?
             memset(ant_channels, 0x00, sizeof(ANT_Channel_t) * FAKE_CHANNELS);
-            memset(&ant_device, 0x00, sizeof(ANT_Device_t));
+            memset(&ant_device, 0x00, sizeof(ANT_Control_t));
+            HAL_GPIO_WritePin(ANT_CONTROL_LED_PORT, ANT_CONTROL_LED, 1);
             pReply[3] = 0x20; // watchdog reset
             break;
           case MESG_OPEN_CHANNEL_ID:
@@ -60,6 +61,7 @@ ANT_MessageStatus process_ant_message(uint8_t *pMessage, size_t len, uint8_t *pR
           case MESG_CHANNEL_ID_ID:
           case MESG_CHANNEL_MESG_PERIOD_ID:
           case MESG_CHANNEL_SEARCH_TIMEOUT_ID:
+          case MESG_LOW_PRIORITY_TIMEOUT:
           case MESG_CHANNEL_RADIO_FREQ_ID:
           case MESG_NETWORK_KEY_ID:
           case MESG_CHANNEL_RADIO_POWER: // set channel power
@@ -230,6 +232,14 @@ ANT_MessageStatus process_ant_configuration(uint8_t config, uint8_t *pBuffer, si
             ret = CHANNEL_IN_WRONG_STATE;
           }
           break;
+        case MESG_LOW_PRIORITY_TIMEOUT:
+          // TODO do something with this
+          if (ant_channels[channel].status != STATUS_UNASSIGNED_CHANNEL) {
+            ant_channels[channel].lp_timeout = pBuffer[BUFFER_INDEX_MESG_DATA];
+          } else {
+            ret = CHANNEL_IN_WRONG_STATE;
+          }
+          break;
         case MESG_CHANNEL_RADIO_FREQ_ID:
           // TODO do something with this
           if (ant_channels[channel].status != STATUS_UNASSIGNED_CHANNEL) {
@@ -264,17 +274,13 @@ ANT_MessageStatus process_ant_configuration(uint8_t config, uint8_t *pBuffer, si
             // TODO start transmitting fake ANT master devices
             ant_channels[channel].open = true;
           } else {
-            ret = CHANNEL_IN_WRONG_STATE;
+            ret = CHANNEL_ID_NOT_SET;
           }
           break;
         case MESG_CLOSE_CHANNEL_ID:
-          if (ant_channels[channel].open) {
-            // TODO stop transmitting fake ANT master devices
-            ant_channels[channel].open = false;
-            if (channel == 0) ant_device.rx_scanning = false;
-          } else {
-            ret = CHANNEL_IN_WRONG_STATE;
-          }
+          // TODO stop transmitting fake ANT master devices
+          ant_channels[channel].open = false;
+          if (channel == 0) ant_device.rx_scanning = false;
           break;
         case MESG_OPEN_RX_SCAN_MODE_ID:
           // TODO something with this see 9.5.4.5
@@ -304,10 +310,77 @@ ANT_MessageStatus process_ant_configuration(uint8_t config, uint8_t *pBuffer, si
   return ret;
 }
 
+
+// the passed pMsg buffer must be large enough to the size and the ANT frame! pData should be 8 bytes
+void ant_construct_data_message(uint8_t id, uint8_t size, uint8_t channel, uint16_t device_no, uint8_t device_type, uint8_t trans_type, uint8_t *pMsg, uint8_t *pData) {
+  uint8_t extData[MESG_EXTENDED_SIZE];
+  memcpy(extData, pData, MESG_MAX_DATA_BYTES);
+  // bytes 8-> are extended
+  extData[MESG_MAX_DATA_BYTES] = 0x80; // extended data flag
+  extData[MESG_MAX_DATA_BYTES + 1] = LOW_BYTE(device_no);
+  extData[MESG_MAX_DATA_BYTES + 2] = HIGH_BYTE(device_no);
+  extData[MESG_MAX_DATA_BYTES + 3] = device_type;
+  extData[MESG_MAX_DATA_BYTES + 4] = trans_type;
+  ant_construct_message(id, size, channel, pMsg, extData);
+}
+
+void ant_construct_message(uint8_t id, uint8_t size, uint8_t channel, uint8_t *pMsg, uint8_t *pData) {
+  pMsg[0] = MESG_TX_SYNC;
+  pMsg[1] = size;
+  pMsg[2] = id;
+  pMsg[3] = channel; // channel
+  memcpy(&pMsg[4], pData, size - 1); // -1 because size includes CRC but data does not
+  pMsg[ANT_MESSAGE_SIZE(pMsg) - 1] = calculate_crc(pMsg, ANT_MESSAGE_SIZE(pMsg) - 1);
+}
+
 inline void channel_message_reply(uint8_t *pBuffer, uint8_t code, uint8_t *pReply) {
   pReply[1] = MESG_RESPONSE_EVENT_SIZE;
   pReply[2] = MESG_RESPONSE_EVENT_ID;
   pReply[3] = pBuffer[BUFFER_INDEX_CHANNEL_NUM]; // channel
   pReply[4] = pBuffer[BUFFER_INDEX_MESG_ID]; // initiating request
   pReply[5] = code;
+}
+
+// this function takes a virtual master device _wireless_ packet and sends it on the channel configured on the slave device (ours) by matching it to an assigned and open channel
+// it's slightly backwards un-packing the data from ant_contruct_data_message but this seems like the most compatiable way of emulating the functionality of master/slave ANT device
+void ant_process_tx_event(uint8_t *pMsg, size_t len) {
+  if (len >= 8) {
+    uint8_t *pBuffer = &pMsg[1];
+    uint8_t *pData = &pBuffer[BUFFER_INDEX_MESG_DATA];
+    uint8_t msg = pBuffer[BUFFER_INDEX_MESG_ID];
+
+    uint16_t device_no = pData[MESG_MAX_DATA_BYTES+1] | (pData[MESG_MAX_DATA_BYTES+2] << 8);
+    uint8_t device_type = pData[MESG_MAX_DATA_BYTES+3];
+    uint8_t trans_type = pData[MESG_MAX_DATA_BYTES+4];
+
+    for (int i = 0; i < FAKE_CHANNELS; i++) {
+      // should the fake channel send the device?
+      if (ant_channels[i].open &&
+          // matching device or wildcard
+          (ant_channels[i].device_no == device_no || ant_channels[i].device_no == 0) &&
+          // matching type or wildcard
+          (ant_channels[i].device_type == device_type || ant_channels[i].device_type == 0) &&
+          // matching trans or pairing search
+          (ant_channels[i].transmission_type == trans_type || ant_channels[i].transmission_type == 0))
+      {
+        // if extended option is not background scan, set channel id to match master
+        if (!((ant_channels[i].ext_assign & 0x01) == 0x01)) {
+          ant_channels[i].device_no = device_no;
+          ant_channels[i].device_type = device_type;
+          ant_channels[i].transmission_type = trans_type;
+        }
+        // set the packet channel is fake channel not fake device...getting confusing but...
+        pBuffer[BUFFER_INDEX_CHANNEL_NUM] = i | (pBuffer[BUFFER_INDEX_CHANNEL_NUM] & SEQUENCE_NUMBER_MASK);
+        if (ant_device.ext_enabled) {
+          // re-calculate CRC due to potential channel change
+          pMsg[ANT_MESSAGE_SIZE(pMsg) - 1] = calculate_crc(pMsg, ANT_MESSAGE_SIZE(pMsg) - 1);
+        } else {
+          // re-order hold message for just standard size
+          ant_construct_message(msg, MESG_DATA_SIZE, i | (pBuffer[BUFFER_INDEX_CHANNEL_NUM] & SEQUENCE_NUMBER_MASK), pMsg, pData);
+        }
+        // TODO add this to a USBD Tx stream
+        transmit_message(pMsg, ANT_MESSAGE_SIZE(pMsg), 20);
+      }
+    }
+  }
 }
