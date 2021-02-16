@@ -29,6 +29,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "message_buffer.h"
+#include "timers.h"
 #include "usart.h"
 #include "usbd_vendor.h"
 #include "utilities.h"
@@ -63,13 +64,20 @@ MessageBufferHandle_t xAntDeviceRxBuffer = NULL;
 static uint8_t xAntDeviceRxStorageBuffer[ANT_EP_OUT_BUFFER_SIZE];
 static StaticMessageBuffer_t xAntDeviceRxBufferStruct;
 
+TimerHandle_t xAntPowerTimer;
+extern ANT_Device_t power_device;
+TimerHandle_t xAntFECTimer;
+extern ANT_Device_t fec_timer;
+static uint8_t timer_data[8] = {0};
+static uint8_t timer_msg[ANT_MAX_SIZE] = {0};
+
 static char printBuffer[64];
 
 osThreadId_t antProtocolTask;
 const osThreadAttr_t antProtocolTask_attributes = {
   .name = "antProtocolTask",
   .priority = (osPriority_t) osPriorityHigh,
-  .stack_size = 768
+  .stack_size = 128 * 6
 };
 
 /* USER CODE END Variables */
@@ -85,6 +93,24 @@ extern USBD_HandleTypeDef hUsbDeviceFS;
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
 void AntProtocolTask(void *argument);
+
+void vTimerCallback(TimerHandle_t xTimer) {
+  uint32_t id;
+
+  /* Optionally do something if the pxTimer parameter is NULL. */
+  configASSERT(xTimer);
+
+  /* The number of times this timer has expired is saved as the
+     timer's ID.  Obtain the count. */
+  id = (uint32_t) pvTimerGetTimerID(xTimer);
+
+  if (id == power_device.channel) {
+    ant_generate_data_page(&power_device, timer_data);
+    ant_construct_data_message(MESG_BROADCAST_DATA_ID, MESG_EXTENDED_SIZE, &power_device, timer_msg, timer_data);
+    xMessageBufferSend(xAntDeviceRxBuffer, timer_msg, ANT_MESSAGE_SIZE(timer_msg), 0);
+    HAL_GPIO_TogglePin(GLED_GPIO_Port, GLED_Pin);
+  }
+}
 /* USER CODE END FunctionPrototypes */
 
 void StartDefaultTask(void *argument);
@@ -111,6 +137,20 @@ void MX_FREERTOS_Init(void) {
 
   /* USER CODE BEGIN RTOS_TIMERS */
   /* start timers, add new ones, ... */
+  xAntPowerTimer = xTimerCreate(
+      "PowerDevice",
+      pdMS_TO_TICKS(PERIOD_TO_MS(power_device.period)),
+      pdTRUE,
+      // use channel as timer id
+      (void*) (uint32_t) power_device.channel,
+      vTimerCallback
+  );
+  if( xAntPowerTimer == NULL ) {
+    Error_Handler();
+  } else {
+    power_device.timer = &xAntPowerTimer;
+    xTimerStart(xAntPowerTimer, 0);
+  }
   /* USER CODE END RTOS_TIMERS */
 
   /* USER CODE BEGIN RTOS_QUEUES */
@@ -143,9 +183,6 @@ void MX_FREERTOS_Init(void) {
 /* USER CODE END Header_StartDefaultTask */
 void StartDefaultTask(void *argument)
 {
-  uint8_t tdata[8] = {0};
-  uint8_t tmsg[ANT_MAX_SIZE] = {0};
-
   /* USER CODE BEGIN StartDefaultTask */
   printf("Default Task Starting\r\n");
   /* Infinite loop */
@@ -158,10 +195,7 @@ void StartDefaultTask(void *argument)
       vTaskList(printBuffer);
       printf(printBuffer);
     }
-    ant_construct_data_message(MESG_BROADCAST_DATA_ID, MESG_EXTENDED_SIZE, ANT_FAKE_CH_POWER, DEVICE_ID, ANT_DEVTYPE_POWER, ANT_TXTYPE_POWER, tmsg, tdata);
-    xMessageBufferSend(xAntDeviceRxBuffer, tmsg, ANT_MESSAGE_SIZE(tmsg), 0);
-    /* osDelay(1000); */
-    osDelay(PERIOD_TO_MS(ANT_PERIOD_POWER));
+    osDelay(1000);
   }
   /* USER CODE END StartDefaultTask */
 }
@@ -198,7 +232,7 @@ void AntProtocolTask(void *argument) {
     HAL_GPIO_WritePin(USBD_RX_LED_PORT, USBD_RX_LED, 1);
 
     if(xReceivedBytes > 0) {
-      if (DEBUG) {
+      if (DEBUG_ANT) {
         printf("ANT+ Rx: ");
         print_hex((char*) ucRxData, xReceivedBytes);
       }
@@ -206,7 +240,7 @@ void AntProtocolTask(void *argument) {
 
 
       if (process_ant_message(ucRxData, xReceivedBytes, reply) != MESG_UNKNOWN_ID) {
-        if (DEBUG) {
+        if (DEBUG_ANT) {
           if (reply[2] == 0xAE) printf("ANT+ Rx Error, Tx: ");
           else printf("ANT+ Tx: ");
           print_hex((char*) reply, ANT_MESSAGE_SIZE(reply));
@@ -221,14 +255,14 @@ void AntProtocolTask(void *argument) {
           transmit_message(reply, ANT_MESSAGE_SIZE(reply), 20);
         }
       } else {
-        if (DEBUG) {
+        if (DEBUG_ANT) {
           printf("ANT+ Rx Error!");
         }
       }
     }
 
     // check for virtual master device messages
-    xReceivedBytes = xMessageBufferReceive(xAntDeviceRxBuffer, (void *) ucRxData, sizeof(ucRxData), xBlockTime);
+    xReceivedBytes = xMessageBufferReceive(xAntDeviceRxBuffer, (void *) ucRxData, sizeof(ucRxData), 0);
     // if there is one, send it on an open assigned channel if there is one
     if (xReceivedBytes > 0) {
       ant_process_tx_event(ucRxData, xReceivedBytes);

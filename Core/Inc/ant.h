@@ -1,7 +1,14 @@
 #include <stdbool.h>
 #include "antmessage.h"
+#include "FreeRTOS.h"
+#include "cmsis_os.h"
+#include "timers.h"
 
-#define ANT_VERSION "AJX1.300"
+#define ANT_VERSION                 "AJX1.300"
+#define ANT_MANU_ID                 0x00FF // unassigned
+#define ANT_MODEL_NO                1
+#define HW_VER                      1
+#define SW_VER                      1
 
 // 1+ as this is including the sync byte, which BUFFER_INDEXES ignore
 #define ANT_MESSAGE_SIZE(buffer) buffer[1+BUFFER_INDEX_MESG_SIZE] + ANT_FRAME_SIZE
@@ -87,12 +94,16 @@ typedef struct {
   uint16_t device_no;
   uint8_t device_type;
   uint8_t transmission_type;
+  uint16_t period;
   uint8_t event_counter;
+  uint8_t page_counter;
   uint8_t channel;
+  TimerHandle_t *timer;
 } ANT_Device_t;
 
 ANT_MessageStatus process_ant_message(uint8_t *pMessage, size_t len, uint8_t *reply);
+void ant_construct_data_message(uint8_t id, uint8_t size, ANT_Device_t *dev, uint8_t *pMsg, uint8_t *pData);
 void ant_construct_message(uint8_t id, uint8_t size, uint8_t channel, uint8_t *pMsg, uint8_t *pData);
-void ant_construct_data_message(uint8_t id, uint8_t size, uint8_t channel, uint16_t device_no, uint8_t device_type, uint8_t trans_type, uint8_t *pMsg, uint8_t *pData);
-void ant_process_tx_event(uint8_t *pMsg, size_t len);
+uint8_t ant_process_tx_event(uint8_t *pMsg, size_t len);
 void transmit_message(uint8_t *pBuffer, size_t len, uint8_t block_tick);
+void ant_generate_data_page(ANT_Device_t *dev, uint8_t *page);

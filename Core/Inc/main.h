@@ -66,6 +66,8 @@ void Error_Handler(void);
 #define BLED_GPIO_Port GPIOB
 /* USER CODE BEGIN Private defines */
 #define DEBUG                     1
+#define DEBUG_ANT                 DEBUG && 1
+#define DEBUG_CH_TX_EVENT         DEBUG && 0
 
 #define USBD_RX_LED_PORT          RLED_GPIO_Port
 #define USBD_RX_LED               RLED_Pin

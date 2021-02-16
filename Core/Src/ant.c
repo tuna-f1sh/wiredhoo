@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include <string.h>
 #include <stdbool.h>
 #include "main.h"
@@ -5,6 +6,7 @@
 #include "antmessage.h"
 #include "antdefines.h"
 #include "ant.h"
+/* #include "timers.h" */
 
 /* static const uint8_t sAntNetworkKey[] = { */
 /*   ANT_NETWORK_KEY_0, ANT_NETWORK_KEY_1, */
@@ -21,6 +23,26 @@ static const char* ant_version = ANT_VERSION;
 ANT_MessageStatus process_ant_request(uint8_t *pBuffer, size_t len, uint8_t *pReply);
 ANT_MessageStatus process_ant_configuration(uint8_t config, uint8_t *pBuffer, size_t len);
 inline void channel_message_reply(uint8_t *pBuffer, uint8_t code, uint8_t *pReply);
+
+ANT_Device_t power_device = {
+  .device_no = DEVICE_ID,
+  .device_type = ANT_DEVTYPE_POWER,
+  .transmission_type = ANT_TXTYPE_POWER,
+  .period = ANT_PERIOD_POWER,
+  .event_counter = 0,
+  .page_counter = 0,
+  .channel = ANT_FAKE_CH_POWER,
+};
+
+ANT_Device_t fec_device = {
+  .device_no = DEVICE_ID,
+  .device_type = ANT_DEVTYPE_FEC,
+  .transmission_type = ANT_TXTYPE_FEC,
+  .period = ANT_PERIOD_FEC,
+  .event_counter = 0,
+  .page_counter = 0,
+  .channel = ANT_FAKE_CH_FEC,
+};
 
 ANT_MessageStatus process_ant_message(uint8_t *pMessage, size_t len, uint8_t *pReply) {
   ANT_MessageStatus ret = MESG_OK;
@@ -312,16 +334,16 @@ ANT_MessageStatus process_ant_configuration(uint8_t config, uint8_t *pBuffer, si
 
 
 // the passed pMsg buffer must be large enough to the size and the ANT frame! pData should be 8 bytes
-void ant_construct_data_message(uint8_t id, uint8_t size, uint8_t channel, uint16_t device_no, uint8_t device_type, uint8_t trans_type, uint8_t *pMsg, uint8_t *pData) {
+void ant_construct_data_message(uint8_t id, uint8_t size, ANT_Device_t *dev, uint8_t *pMsg, uint8_t *pData) {
   uint8_t extData[MESG_EXTENDED_SIZE];
   memcpy(extData, pData, MESG_MAX_DATA_BYTES);
   // bytes 8-> are extended
   extData[MESG_MAX_DATA_BYTES] = 0x80; // extended data flag
-  extData[MESG_MAX_DATA_BYTES + 1] = LOW_BYTE(device_no);
-  extData[MESG_MAX_DATA_BYTES + 2] = HIGH_BYTE(device_no);
-  extData[MESG_MAX_DATA_BYTES + 3] = device_type;
-  extData[MESG_MAX_DATA_BYTES + 4] = trans_type;
-  ant_construct_message(id, size, channel, pMsg, extData);
+  extData[MESG_MAX_DATA_BYTES + 1] = LOW_BYTE(dev->device_no);
+  extData[MESG_MAX_DATA_BYTES + 2] = HIGH_BYTE(dev->device_no);
+  extData[MESG_MAX_DATA_BYTES + 3] = dev->device_type;
+  extData[MESG_MAX_DATA_BYTES + 4] = dev->transmission_type;
+  ant_construct_message(id, size, dev->channel, pMsg, extData);
 }
 
 void ant_construct_message(uint8_t id, uint8_t size, uint8_t channel, uint8_t *pMsg, uint8_t *pData) {
@@ -343,8 +365,8 @@ inline void channel_message_reply(uint8_t *pBuffer, uint8_t code, uint8_t *pRepl
 
 // this function takes a virtual master device _wireless_ packet and sends it on the channel configured on the slave device (ours) by matching it to an assigned and open channel
 // it's slightly backwards un-packing the data from ant_contruct_data_message but this seems like the most compatiable way of emulating the functionality of master/slave ANT device
-void ant_process_tx_event(uint8_t *pMsg, size_t len) {
-  if (len >= 8) {
+uint8_t ant_process_tx_event(uint8_t *pMsg, size_t len) {
+  if (len >= MESG_EXTENDED_SIZE) {
     uint8_t *pBuffer = &pMsg[1];
     uint8_t *pData = &pBuffer[BUFFER_INDEX_MESG_DATA];
     uint8_t msg = pBuffer[BUFFER_INDEX_MESG_ID];
@@ -380,7 +402,85 @@ void ant_process_tx_event(uint8_t *pMsg, size_t len) {
         }
         // TODO add this to a USBD Tx stream
         transmit_message(pMsg, ANT_MESSAGE_SIZE(pMsg), 20);
+        if (DEBUG && DEBUG_CH_TX_EVENT) {
+          printf("ANT+ Tx Event: ");
+          print_hex((char*) pMsg, len);
+        }
       }
     }
+
+    return 0;
+  } else {
+    return 1;
+  }
+}
+
+void ant_generate_common_page(uint8_t id, uint8_t *page) {
+  switch (id) {
+    case 0x50:
+      page[0] = 0x50;
+      page[1] = 0xff;
+      page[2] = 0xff;
+      page[3] = HW_VER; // hardware version
+      page[4] = ANT_MANU_ID & 0xff; // manufacturer ID
+      page[5] = ANT_MANU_ID >> 8;
+      page[6] = ANT_MODEL_NO & 0xff; // model number
+      page[7] = ANT_MODEL_NO >> 8;
+      break;
+    case 0x51:
+      page[0] = 0x51;
+      page[1] = 0xff;
+      page[2] = 0xff;
+      page[3] = SW_VER; // SW version
+      page[4] = device_serial & 0xff; // serial#
+      page[5] = (device_serial >> 8) & 0xff;
+      page[6] = (device_serial >> 16) & 0xff;
+      page[7] = (device_serial >> 24) & 0xff;
+      break;
+    default:
+      break;
+  }
+}
+
+void ant_generate_data_page(ANT_Device_t *dev, uint8_t *page) {
+  switch (dev->device_type) {
+    case ANT_DEVTYPE_POWER:
+      // 0x50 common page 1
+      if (dev->page_counter == 60) {
+        ant_generate_common_page(0x50, page);
+      // 0x51 common page 2
+      } else if (dev->page_counter == 121) {
+        ant_generate_common_page(0x51, page);
+      // calibration response
+      } else if (dev->page_counter >= 0xd0) {
+        // Calibration response
+        page[0] = 0x1; // calibration message
+        page[1] = 0xaf; // always fail since should use spin-down
+        page[2] = 0xff; // no auto-zero
+        page[3] = 0xff;
+        page[4] = 0xff;
+        page[5] = 0xff;
+        page[6] = 0;
+        page[7] = 0;
+      } else {
+        page[0] = 0x10; // general data
+        page[1] = dev->event_counter++;
+        page[2] = 0xFF; // pedal power not used
+        page[3] = 0xFF; // cadence not used
+        page[4] = 0x00; // accumulated power lsb
+        page[5] = 0x00; // accumulated power hsb
+        page[6] = 0x00; // instananous power lsb
+        page[7] = 0x00; // instananous power hsb
+      }
+
+      dev->page_counter++;
+      if ((dev->page_counter > 121) && (dev->page_counter < 0xd0)) {
+        dev->page_counter = 0;
+      }
+      break;
+    case ANT_DEVTYPE_FEC:
+      break;
+    default:
+      break;
   }
 }
