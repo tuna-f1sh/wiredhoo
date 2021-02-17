@@ -64,10 +64,13 @@ MessageBufferHandle_t xAntDeviceRxBuffer = NULL;
 static uint8_t xAntDeviceRxStorageBuffer[ANT_EP_OUT_BUFFER_SIZE];
 static StaticMessageBuffer_t xAntDeviceRxBufferStruct;
 
+// timers for emulated master data sending
 TimerHandle_t xAntPowerTimer;
+StaticTimer_t xAntPowerTimerStatic;
 extern ANT_Device_t power_device;
 TimerHandle_t xAntFECTimer;
-extern ANT_Device_t fec_timer;
+StaticTimer_t xAntFECTimerStatic;
+extern ANT_Device_t fec_device;
 static uint8_t timer_data[8] = {0};
 static uint8_t timer_msg[ANT_MAX_SIZE] = {0};
 
@@ -94,6 +97,7 @@ extern USBD_HandleTypeDef hUsbDeviceFS;
 /* USER CODE BEGIN FunctionPrototypes */
 void AntProtocolTask(void *argument);
 
+// this timer callback is designed to emulate the master update period to put data broadcast events in the Tx stream
 void vTimerCallback(TimerHandle_t xTimer) {
   uint32_t id;
 
@@ -109,6 +113,28 @@ void vTimerCallback(TimerHandle_t xTimer) {
     ant_construct_data_message(MESG_BROADCAST_DATA_ID, MESG_EXTENDED_SIZE, &power_device, timer_msg, timer_data);
     xMessageBufferSend(xAntDeviceRxBuffer, timer_msg, ANT_MESSAGE_SIZE(timer_msg), 0);
     HAL_GPIO_TogglePin(GLED_GPIO_Port, GLED_Pin);
+  } else if (id == fec_device.channel) {
+    ant_generate_data_page(&fec_device, timer_data);
+    ant_construct_data_message(MESG_BROADCAST_DATA_ID, MESG_EXTENDED_SIZE, &fec_device, timer_msg, timer_data);
+    xMessageBufferSend(xAntDeviceRxBuffer, timer_msg, ANT_MESSAGE_SIZE(timer_msg), 0);
+  }
+}
+
+void ant_device_init(ANT_Device_t *dev, TimerHandle_t *timer, StaticTimer_t *stimer, char *name) {
+  *timer = xTimerCreateStatic(
+      name,
+      pdMS_TO_TICKS(PERIOD_TO_MS(dev->period)),
+      pdTRUE,
+      // use channel as timer id
+      (void*) (uint32_t) dev->channel,
+      vTimerCallback,
+      stimer
+  );
+  if( *timer == NULL ) {
+    Error_Handler();
+  } else {
+    dev->timer = timer;
+    /* xTimerStart(*timer, 0); */
   }
 }
 /* USER CODE END FunctionPrototypes */
@@ -137,20 +163,8 @@ void MX_FREERTOS_Init(void) {
 
   /* USER CODE BEGIN RTOS_TIMERS */
   /* start timers, add new ones, ... */
-  xAntPowerTimer = xTimerCreate(
-      "PowerDevice",
-      pdMS_TO_TICKS(PERIOD_TO_MS(power_device.period)),
-      pdTRUE,
-      // use channel as timer id
-      (void*) (uint32_t) power_device.channel,
-      vTimerCallback
-  );
-  if( xAntPowerTimer == NULL ) {
-    Error_Handler();
-  } else {
-    power_device.timer = &xAntPowerTimer;
-    xTimerStart(xAntPowerTimer, 0);
-  }
+  ant_device_init(&power_device, &xAntPowerTimer, &xAntPowerTimerStatic, "PowerTimer");
+  ant_device_init(&fec_device, &xAntFECTimer, &xAntFECTimerStatic, "FECTimer");
   /* USER CODE END RTOS_TIMERS */
 
   /* USER CODE BEGIN RTOS_QUEUES */
@@ -222,7 +236,9 @@ void AntProtocolTask(void *argument) {
     uint8_t reply[ANT_MAX_SIZE] = {0};
     uint8_t ucRxData[64];
     size_t xReceivedBytes;
-    const TickType_t xBlockTime = pdMS_TO_TICKS(10);
+    // the block time needs to be faster than emulated devices are loading up transmit buffer
+    const TickType_t xBlockTime = pdMS_TO_TICKS(5);
+    ANT_MessageStatus_t status = 0;
 
     /* Receive the next message from the message buffer.  Wait in the Blocked
        state (so not using any CPU processing time) for a maximum of 100ms for
@@ -238,8 +254,8 @@ void AntProtocolTask(void *argument) {
       }
       HAL_GPIO_WritePin(USBD_RX_LED_PORT, USBD_RX_LED, 0);
 
-
-      if (process_ant_message(ucRxData, xReceivedBytes, reply) != MESG_UNKNOWN_ID) {
+      status = process_ant_message(ucRxData, xReceivedBytes, reply);
+      if (status != MESG_UNKNOWN_ID) {
         if (DEBUG_ANT) {
           if (reply[2] == 0xAE) printf("ANT+ Rx Error, Tx: ");
           else printf("ANT+ Tx: ");
@@ -247,12 +263,16 @@ void AntProtocolTask(void *argument) {
         }
 
         // TODO replace with message stream for replies
-        transmit_message(reply, ANT_MESSAGE_SIZE(reply), 20);
-        // close channel request follow with channel event closed
-        if (reply[4] == MESG_CLOSE_CHANNEL_ID && (ucRxData[BUFFER_INDEX_MESG_ID + 1] == MESG_CLOSE_CHANNEL_ID)) {
-          uint8_t data[2] = {0x01, EVENT_CHANNEL_CLOSED};
-          ant_construct_message(MESG_RESPONSE_EVENT_ID, MESG_RESPONSE_EVENT_SIZE, 0, reply, data);
+        if (status != MESG_NO_REPLY) {
           transmit_message(reply, ANT_MESSAGE_SIZE(reply), 20);
+          // close channel request follow with channel event closed
+          if (reply[4] == MESG_CLOSE_CHANNEL_ID && (ucRxData[BUFFER_INDEX_MESG_ID + 1] == MESG_CLOSE_CHANNEL_ID)) {
+            uint8_t data[2] = {0x01, EVENT_CHANNEL_CLOSED};
+            ant_construct_message(MESG_RESPONSE_EVENT_ID, MESG_RESPONSE_EVENT_SIZE, 0, reply, data);
+            transmit_message(reply, ANT_MESSAGE_SIZE(reply), 20);
+          }
+        } else {
+          printf("ANT+ No reply");
         }
       } else {
         if (DEBUG_ANT) {

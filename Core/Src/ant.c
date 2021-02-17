@@ -1,3 +1,6 @@
+// TODO
+// * add channel search timeout using timer if period != 0xFF, send timeout event on timeout
+// * burst and advanced burst
 #include <stdio.h>
 #include <string.h>
 #include <stdbool.h>
@@ -6,23 +9,21 @@
 #include "antmessage.h"
 #include "antdefines.h"
 #include "ant.h"
-/* #include "timers.h" */
+#include "trainer.h"
+#include "FreeRTOS.h"
+#include "cmsis_os.h"
+#include "timers.h"
 
-/* static const uint8_t sAntNetworkKey[] = { */
-/*   ANT_NETWORK_KEY_0, ANT_NETWORK_KEY_1, */
-/*   ANT_NETWORK_KEY_2, ANT_NETWORK_KEY_3, */
-/*   ANT_NETWORK_KEY_4, ANT_NETWORK_KEY_5, */
-/*   ANT_NETWORK_KEY_6, ANT_NETWORK_KEY_7, */
-/* }; */
 static uint8_t network_key[FAKE_NETWORKS][8] = {0};
 static const uint32_t device_serial = DEVICE_SERIAL;
 static ANT_Channel_t ant_channels[FAKE_CHANNELS];
 static ANT_Control_t ant_device;
 static const char* ant_version = ANT_VERSION;
 
-ANT_MessageStatus process_ant_request(uint8_t *pBuffer, size_t len, uint8_t *pReply);
-ANT_MessageStatus process_ant_configuration(uint8_t config, uint8_t *pBuffer, size_t len);
+ANT_MessageStatus_t process_ant_request(uint8_t *pBuffer, size_t len, uint8_t *pReply);
+ANT_MessageStatus_t process_ant_configuration(uint8_t config, uint8_t *pBuffer, size_t len);
 inline void channel_message_reply(uint8_t *pBuffer, uint8_t code, uint8_t *pReply);
+ANT_MessageStatus_t process_ant_broadcast(uint8_t event, uint8_t *pBuffer, size_t len);
 
 ANT_Device_t power_device = {
   .device_no = DEVICE_ID,
@@ -43,9 +44,10 @@ ANT_Device_t fec_device = {
   .page_counter = 0,
   .channel = ANT_FAKE_CH_FEC,
 };
+extern Trainer_t trainer;
 
-ANT_MessageStatus process_ant_message(uint8_t *pMessage, size_t len, uint8_t *pReply) {
-  ANT_MessageStatus ret = MESG_OK;
+ANT_MessageStatus_t process_ant_message(uint8_t *pMessage, size_t len, uint8_t *pReply) {
+  ANT_MessageStatus_t ret = MESG_OK;
 
   // check sync byte
   if (pMessage[0] == MESG_TX_SYNC) {
@@ -98,6 +100,19 @@ ANT_MessageStatus process_ant_message(uint8_t *pMessage, size_t len, uint8_t *pR
           case MESG_REQUEST_ID:
             ret = process_ant_request(pBuffer, len - 1, pReply);
             break;
+          // --- channel data received ---
+          // no action on this for emulated devices...
+          case MESG_BROADCAST_DATA_ID:
+            ret = process_ant_broadcast(msg, pBuffer, len);
+            break;
+          case MESG_ACKNOWLEDGED_DATA_ID:
+            ret = process_ant_broadcast(msg, pBuffer, len);
+            channel_message_reply(pBuffer, EVENT_TRANSFER_TX_COMPLETED, pReply);
+            break;
+          // TODO - support burst
+          // --- channel events receieved ---
+          // TODO - do something here
+          case MESG_RESPONSE_EVENT_ID:
           default:
             ret = MESG_UNKNOWN_ID;
             break;
@@ -130,8 +145,8 @@ ANT_MessageStatus process_ant_message(uint8_t *pMessage, size_t len, uint8_t *pR
   return ret;
 }
 
-ANT_MessageStatus process_ant_request(uint8_t *pBuffer, size_t len, uint8_t *pReply) {
-  ANT_MessageStatus ret = MESG_OK;
+ANT_MessageStatus_t process_ant_request(uint8_t *pBuffer, size_t len, uint8_t *pReply) {
+  ANT_MessageStatus_t ret = MESG_OK;
   uint8_t channel = pBuffer[BUFFER_INDEX_CHANNEL_NUM];
   uint8_t request = pBuffer[BUFFER_INDEX_MESG_DATA];
 
@@ -204,7 +219,7 @@ ANT_MessageStatus process_ant_request(uint8_t *pBuffer, size_t len, uint8_t *pRe
   return ret;
 }
 
-ANT_MessageStatus process_ant_configuration(uint8_t config, uint8_t *pBuffer, size_t len) {
+ANT_MessageStatus_t process_ant_configuration(uint8_t config, uint8_t *pBuffer, size_t len) {
   uint8_t ret = RESPONSE_NO_ERROR;
   uint8_t channel = pBuffer[BUFFER_INDEX_CHANNEL_NUM];
 
@@ -298,11 +313,21 @@ ANT_MessageStatus process_ant_configuration(uint8_t config, uint8_t *pBuffer, si
           } else {
             ret = CHANNEL_ID_NOT_SET;
           }
+          if (ant_channels[channel].device_type == ANT_DEVTYPE_POWER || ant_channels[channel].device_type == 0) {
+            ant_start_device(&power_device);
+          }
+          if (ant_channels[channel].device_type == ANT_DEVTYPE_FEC || ant_channels[channel].device_type == 0) {
+            ant_start_device(&fec_device);
+          }
           break;
         case MESG_CLOSE_CHANNEL_ID:
           // TODO stop transmitting fake ANT master devices
           ant_channels[channel].open = false;
           if (channel == 0) ant_device.rx_scanning = false;
+          if (!ant_any_channels_open()) {
+            ant_stop_device(&power_device);
+            ant_stop_device(&fec_device);
+          }
           break;
         case MESG_OPEN_RX_SCAN_MODE_ID:
           // TODO something with this see 9.5.4.5
@@ -313,6 +338,8 @@ ANT_MessageStatus process_ant_configuration(uint8_t config, uint8_t *pBuffer, si
           } else {
             ret = CHANNEL_IN_WRONG_STATE;
           }
+          ant_start_device(&power_device);
+          ant_start_device(&fec_device);
           break;
         case MESG_ENABLE_LED:
           HAL_GPIO_WritePin(ANT_CONTROL_LED_PORT, ANT_CONTROL_LED, !pBuffer[BUFFER_INDEX_MESG_DATA]);
@@ -332,6 +359,44 @@ ANT_MessageStatus process_ant_configuration(uint8_t config, uint8_t *pBuffer, si
   return ret;
 }
 
+ANT_MessageStatus_t process_ant_broadcast(uint8_t event, uint8_t *pBuffer, size_t len) {
+  uint8_t ret = MESG_OK;
+  uint8_t channel = pBuffer[BUFFER_INDEX_CHANNEL_NUM];
+
+  switch (event) {
+    case MESG_BROADCAST_DATA_ID:
+      ret = MESG_NO_REPLY;
+      break;
+    // ret MESG_OK will return ACK
+    case MESG_ACKNOWLEDGED_DATA_ID:
+      // check for channel assigned to fake device - maybe should check for extended channel id instead?
+      if (ant_channels[channel].open &&
+          // matching device or wildcard
+          (ant_channels[channel].device_no == DEVICE_ID || ant_channels[channel].device_no == 0) &&
+          // matching type or wildcard
+          (ant_channels[channel].device_type == ANT_DEVTYPE_POWER || ant_channels[channel].device_type == 0) &&
+          // matching trans or pairing search
+          (ant_channels[channel].transmission_type == ANT_TXTYPE_POWER || ant_channels[channel].transmission_type == 0))
+      {
+        memcpy(&power_device.last_request, &pBuffer[BUFFER_INDEX_DATA0], 8);
+      } else if (ant_channels[channel].open &&
+          // matching device or wildcard
+          (ant_channels[channel].device_no == DEVICE_ID || ant_channels[channel].device_no == 0) &&
+          // matching type or wildcard
+          (ant_channels[channel].device_type == ANT_DEVTYPE_FEC || ant_channels[channel].device_type == 0) &&
+          // matching trans or pairing search
+          (ant_channels[channel].transmission_type == ANT_TXTYPE_FEC || ant_channels[channel].transmission_type == 0))
+      {
+        memcpy(&fec_device.last_request, &pBuffer[BUFFER_INDEX_DATA0], 8);
+      }
+      break;
+    default:
+      ret = MESG_UNKNOWN_ID;
+      break;
+  }
+
+  return ret;
+}
 
 // the passed pMsg buffer must be large enough to the size and the ANT frame! pData should be 8 bytes
 void ant_construct_data_message(uint8_t id, uint8_t size, ANT_Device_t *dev, uint8_t *pMsg, uint8_t *pData) {
@@ -443,18 +508,25 @@ void ant_generate_common_page(uint8_t id, uint8_t *page) {
 }
 
 void ant_generate_data_page(ANT_Device_t *dev, uint8_t *page) {
+  uint8_t process_ret = 1;
+
   switch (dev->device_type) {
     case ANT_DEVTYPE_POWER:
+      // set page counter to 0xD0 so that we send the calibration response for a number of cycles before rolling over
+      if (dev->last_request[0] == ANT_POWER_CALIBRATION_PAGE) {
+        dev->page_counter = 0xd0;
+        dev->last_request[0] = 0;
+      }
       // 0x50 common page 1
       if (dev->page_counter == 60) {
-        ant_generate_common_page(0x50, page);
+        ant_generate_common_page(ANT_COMMON_PAGE1, page);
       // 0x51 common page 2
       } else if (dev->page_counter == 121) {
-        ant_generate_common_page(0x51, page);
-      // calibration response
+        ant_generate_common_page(ANT_COMMON_PAGE2, page);
+      // calibration response (hacky way to use same process to reply to calibration - set page_counter to 0xd0 on request)
       } else if (dev->page_counter >= 0xd0) {
         // Calibration response
-        page[0] = 0x1; // calibration message
+        page[0] = ANT_POWER_CALIBRATION_PAGE; // calibration message
         page[1] = 0xaf; // always fail since should use spin-down
         page[2] = 0xff; // no auto-zero
         page[3] = 0xff;
@@ -463,14 +535,21 @@ void ant_generate_data_page(ANT_Device_t *dev, uint8_t *page) {
         page[6] = 0;
         page[7] = 0;
       } else {
-        page[0] = 0x10; // general data
+        // fake power for now
+        /* if (trainer.power < 500) { */
+        /*   trainer.power += 10; */
+        /* } else { */
+        /*   trainer.power = 0; */
+        /* } */
+        trainer.accumulated_power += trainer.power;
+        page[0] = ANT_POWER_STANDARD_PAGE; // general data
         page[1] = dev->event_counter++;
         page[2] = 0xFF; // pedal power not used
         page[3] = 0xFF; // cadence not used
-        page[4] = 0x00; // accumulated power lsb
-        page[5] = 0x00; // accumulated power hsb
-        page[6] = 0x00; // instananous power lsb
-        page[7] = 0x00; // instananous power hsb
+        page[4] = LOW_BYTE(trainer.accumulated_power); // accumulated power lsb
+        page[5] = HIGH_BYTE(trainer.accumulated_power); // accumulated power hsb
+        page[6] = LOW_BYTE(trainer.power); // instananous power lsb
+        page[7] = HIGH_BYTE(trainer.power); // instananous power hsb
       }
 
       dev->page_counter++;
@@ -479,8 +558,81 @@ void ant_generate_data_page(ANT_Device_t *dev, uint8_t *page) {
       }
       break;
     case ANT_DEVTYPE_FEC:
+      if (fec_device.last_request[0] != 0) {
+        process_ret = trainer_process_request(dev->last_request, page);
+        dev->last_request[0] = 0;
+      }
+
+      // carry on filling page if process request didn't return a page
+      if (process_ret != 0) {
+        if (dev->page_counter >= 0xd0) {
+          trainer_generate_page(ANT_FEC_CALIBRATION_REQ, page);
+        // every 20 show settings page
+        } else if ((dev->page_counter % 20) || (trainer.fsm == SPIN_DOWN)) {
+          // interweave calibration progress with general state
+          if ((trainer.fsm == SPIN_DOWN) && (dev->page_counter % 2)) {
+            // TODO exit spin down
+            page[0] = ANT_FEC_CALIBRATION_PROG;
+            page[1] = ANT_FEC_SPIN_DOWN_MASK; // send we are doing spin down
+            page[2] = 0x00; // condition status ignored for now (TODO)
+            page[3] = 0xff; // temperature 0.5 deg
+            page[4] = LOW_BYTE(SPIN_DOWN_TARGET_SPEED); // target speed lsb 0.001 m/s
+            page[5] = HIGH_BYTE(SPIN_DOWN_TARGET_SPEED); // target speed hsb
+            page[6] = 0xff; // target spin down time lsb ms
+            page[7] = 0xff; // target spin down time hsb ms
+          } else {
+            trainer_generate_page(ANT_FEC_GENERAL_SET_PAGE, page);
+          }
+        } else if (dev->page_counter % 5) {
+          trainer_generate_page(ANT_FEC_GENERAL_PAGE, page);
+        } else {
+          page[0] = ANT_FEC_TRAINER_DATA_PAGE;
+          page[1] = dev->event_counter++;
+          page[2] = trainer.cadence;
+          page[3] = LOW_BYTE(trainer.accumulated_power); // accumulated power lsb
+          page[4] = HIGH_BYTE(trainer.accumulated_power); // accumulated power hsb
+          page[5] = LOW_BYTE(trainer.power); // instananous power lsb
+          page[6] = (HIGH_BYTE(trainer.power) & 0x0F) | (trainer.status.byte << 4); // instananous power hsb 0:3 status 4:7
+          page[7] = (trainer.flag & 0x0F) | (trainer.state << 4);
+        }
+      }
+
+      dev->page_counter++;
+      if ((dev->page_counter > 120) && (dev->page_counter < 0xd0)) {
+        dev->page_counter = 0;
+      }
       break;
     default:
       break;
   }
+}
+
+uint8_t ant_start_device(ANT_Device_t *dev) {
+  if( dev->timer == NULL ) {
+    return 1;
+  } else {
+    xTimerStart(*dev->timer, 0);
+    return 0;
+  }
+}
+
+uint8_t ant_stop_device(ANT_Device_t *dev) {
+  if( dev->timer == NULL ) {
+    return 1;
+  } else {
+    xTimerStop(*dev->timer, 0);
+    return 0;
+  }
+  // clear the LED as it was blinky in timer
+  HAL_GPIO_WritePin(GLED_GPIO_Port, GLED_Pin, 1);
+}
+
+uint8_t ant_any_channels_open(void) {
+  for (int i = 0; i < FAKE_CHANNELS; i++) {
+    if (ant_channels[i].open) {
+      return 1;
+    }
+  }
+
+  return 0;
 }
