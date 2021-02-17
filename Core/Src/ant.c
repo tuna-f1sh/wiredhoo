@@ -70,6 +70,8 @@ ANT_MessageStatus_t process_ant_message(uint8_t *pMessage, size_t len, uint8_t *
             // re-initialise channels to unassigned state or maybe even reset after send?
             memset(ant_channels, 0x00, sizeof(ANT_Channel_t) * FAKE_CHANNELS);
             memset(&ant_device, 0x00, sizeof(ANT_Control_t));
+            ant_stop_device(&power_device);
+            ant_stop_device(&fec_device);
             HAL_GPIO_WritePin(ANT_CONTROL_LED_PORT, ANT_CONTROL_LED, 1);
             pReply[3] = 0x20; // watchdog reset
             break;
@@ -567,24 +569,22 @@ void ant_generate_data_page(ANT_Device_t *dev, uint8_t *page) {
       if (process_ret != 0) {
         if (dev->page_counter >= 0xd0) {
           trainer_generate_page(ANT_FEC_CALIBRATION_REQ, page);
-        // every 20 show settings page
-        } else if ((dev->page_counter % 20) || (trainer.fsm == SPIN_DOWN)) {
+        } else if (trainer.fsm == SPIN_DOWN) {
           // interweave calibration progress with general state
-          if ((trainer.fsm == SPIN_DOWN) && (dev->page_counter % 2)) {
-            // TODO exit spin down
-            page[0] = ANT_FEC_CALIBRATION_PROG;
-            page[1] = ANT_FEC_SPIN_DOWN_MASK; // send we are doing spin down
-            page[2] = 0x00; // condition status ignored for now (TODO)
-            page[3] = 0xff; // temperature 0.5 deg
-            page[4] = LOW_BYTE(SPIN_DOWN_TARGET_SPEED); // target speed lsb 0.001 m/s
-            page[5] = HIGH_BYTE(SPIN_DOWN_TARGET_SPEED); // target speed hsb
-            page[6] = 0xff; // target spin down time lsb ms
-            page[7] = 0xff; // target spin down time hsb ms
+          if (dev->page_counter % 2 == 0) {
+            trainer_generate_page(ANT_FEC_CALIBRATION_PROG, page);
           } else {
-            trainer_generate_page(ANT_FEC_GENERAL_SET_PAGE, page);
+            trainer_generate_page(ANT_FEC_GENERAL_PAGE, page);
           }
-        } else if (dev->page_counter % 5) {
+        // every 20 show settings page
+        } else if (dev->page_counter % 20 == 0) {
+          trainer_generate_page(ANT_FEC_GENERAL_SET_PAGE, page);
+        // every 5 show general page
+        } else if (dev->page_counter % 5 == 0) {
           trainer_generate_page(ANT_FEC_GENERAL_PAGE, page);
+        /* } else if (dev->page_counter % 6 == 0) { */
+        /*   trainer_generate_page(ANT_FEC_KICKR_SIG, page); */
+        // otherwise main data
         } else {
           page[0] = ANT_FEC_TRAINER_DATA_PAGE;
           page[1] = dev->event_counter++;
@@ -598,7 +598,7 @@ void ant_generate_data_page(ANT_Device_t *dev, uint8_t *page) {
       }
 
       dev->page_counter++;
-      if ((dev->page_counter > 120) && (dev->page_counter < 0xd0)) {
+      if ((dev->page_counter > 121) && (dev->page_counter < 0xd0)) {
         dev->page_counter = 0;
       }
       break;

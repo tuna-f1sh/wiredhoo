@@ -1,3 +1,4 @@
+#include <string.h>
 #include "main.h"
 #include "utilities.h"
 #include "antmessage.h"
@@ -9,8 +10,10 @@ Trainer_t trainer;
 UserConfig_t user;
 
 void trainer_init(void) {
+  memset(&trainer, 0, sizeof(Trainer_t));
   trainer.state = READY;
-  trainer.status.resistance_calibration = 1;
+  /* trainer.status.resistance_calibration = 1; */
+  trainer.wheel_dia = WHEEL_DIAMETER;
 }
 
 uint8_t trainer_process_request(uint8_t *request, uint8_t *page) {
@@ -97,6 +100,16 @@ uint8_t trainer_generate_page(uint8_t data_page, uint8_t *page) {
       page[6] = LOW_BYTE(trainer.spin_down_period);
       page[7] = HIGH_BYTE(trainer.spin_down_period);
       break;
+    case ANT_FEC_CALIBRATION_PROG:
+      page[0] = ANT_FEC_CALIBRATION_PROG;
+      page[1] = ANT_FEC_SPIN_DOWN_MASK; // send we are doing spin down
+      page[2] = trainer.calib_condition.byte; // condition status
+      page[3] = 0xff; // temperature 0.5 deg
+      page[4] = LOW_BYTE(SPIN_DOWN_TARGET_SPEED); // target speed lsb 0.001 m/s
+      page[5] = HIGH_BYTE(SPIN_DOWN_TARGET_SPEED); // target speed hsb
+      page[6] = 0xff; // target spin down time lsb ms
+      page[7] = 0xff; // target spin down time hsb ms
+      break;
     case ANT_FEC_DP_FE_CAPABILITES:
       page[0] = ANT_FEC_DP_FE_CAPABILITES;
       page[1] = 0xFF;
@@ -137,11 +150,31 @@ uint8_t trainer_generate_page(uint8_t data_page, uint8_t *page) {
       page[0] = ANT_FEC_GENERAL_SET_PAGE;
       page[1] = 0xff;
       page[2] = 0xff;
-      page[3] = 0xff;
-      page[4] = 0xff;
-      page[5] = 0xff;
+      page[3] = (uint8_t) (trainer.wheel_dia * PI); // cycle length is wheel circumference
+      page[4] = LOW_BYTE(trainer.grade);
+      page[5] = HIGH_BYTE(trainer.grade);
       page[6] = trainer.resistance;
       page[7] = trainer.state << 4;
+      break;
+    case ANT_FEC_TRAINER_TORQUE_PAGE:
+      page[0] = ANT_FEC_TRAINER_TORQUE_PAGE;
+      page[1] = 0x00;
+      page[2] = WHEEL_TICKS_REVOLUTION;
+      page[3] = LOW_BYTE(trainer.accumulated_wheel);
+      page[4] = HIGH_BYTE(trainer.accumulated_wheel);
+      page[5] = LOW_BYTE(trainer.accumulated_torque);
+      page[6] = HIGH_BYTE(trainer.accumulated_torque);
+      page[7] = trainer.state << 4;
+      break;
+    case ANT_FEC_KICKR_SIG:
+      page[0] = ANT_FEC_KICKR_SIG;
+      page[1] = 0xFF;
+      page[2] = 0xFF;
+      page[3] = 0xFF;
+      page[4] = 0xFF;
+      page[5] = 0xFF;
+      page[6] = 0xFF;
+      page[7] = 0x00;
       break;
     default:
       ret = 1;

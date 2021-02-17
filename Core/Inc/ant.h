@@ -61,9 +61,11 @@
 #define ANT_COMMON_CMD_STATUS       0x47
 #define ANT_POWER_STANDARD_PAGE     0x10
 #define ANT_POWER_CALIBRATION_PAGE  0x01
-#define ANT_FEC_TRAINER_DATA_PAGE   0x19
-#define ANT_FEC_GENERAL_PAGE        0x10
-#define ANT_FEC_GENERAL_SET_PAGE    0x11
+#define ANT_FEC_TRAINER_DATA_PAGE   0x19 // 25
+#define ANT_FEC_TRAINER_TORQUE_PAGE 0x1A // 26
+#define ANT_FEC_GENERAL_PAGE        0x10 // 16
+#define ANT_FEC_GENERAL_SET_PAGE    0x11 // 17
+#define ANT_FEC_KICKR_SIG           0xE0 // not in FEC but is broadcast for some reason...
 
 // calibration req is ack then update with progress interleved with general data followed by req to send calibration complete status
 #define ANT_FEC_CALIBRATION_REQ     ANT_POWER_CALIBRATION_PAGE

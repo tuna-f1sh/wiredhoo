@@ -8,7 +8,14 @@
 #define ANT_FEC_GEN_CAPABILITES             (ANT_FEC_HR_SOURCE & 0x03) | (ANT_FEC_DISTANCE << 2) | (ANT_FEC_SPEED << 3)
 #define ANT_FEC_CAPABILITES                 (ANT_FEC_BASIC_RESISTANCE << 0) | (ANT_FEC_TARGET_POWER << 1) | (ANT_FEC_SIMULATION << 2)
 
+#define PI                                  3.14159
 #define SPIN_DOWN_TARGET_SPEED              10000U // 0.001 m/s
+#define WHEEL_DIAMETER                      67 // 0.01 m wheel diameter
+#define WHEEL_TICKS_REVOLUTION              32
+
+#define CALIB_NA                            0
+#define CALIB_TOO_LOW                       1
+#define CALIB_OK                            2
 
 typedef enum {
   RESERVED,
@@ -39,10 +46,19 @@ typedef union {
   uint8_t byte;
 } TrainerStatus_t;
 
+typedef union {
+  uint8_t reserved:4;
+  uint8_t temperature:2;
+  uint8_t speed:2;
+  uint8_t byte;
+} TrainerCalibCond_t;
+
 typedef struct {
   uint16_t power;
   uint32_t accumulated_power;
   uint16_t speed;
+  uint16_t accumulated_wheel;
+  uint16_t accumulated_torque;
   uint8_t cadence;
   uint16_t target_power;
   uint16_t wheel_dia;
@@ -59,6 +75,7 @@ typedef struct {
   TrainerStatus_t status;
   TrainerState_t state; // this is state according to ANT FEC type
   TrainerFlag_t flag;
+  TrainerCalibCond_t calib_condition;
   uint8_t fsm; // this is finite state machine
 } Trainer_t;
 
