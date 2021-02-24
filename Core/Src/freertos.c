@@ -83,6 +83,8 @@ const osThreadAttr_t antProtocolTask_attributes = {
   .stack_size = 128 * 6
 };
 
+extern USBD_HandleTypeDef hUsbDeviceFS;
+
 /* USER CODE END Variables */
 /* Definitions for defaultTask */
 osThreadId_t defaultTaskHandle;
@@ -92,7 +94,6 @@ const osThreadAttr_t defaultTask_attributes = {
   .stack_size = 128 * 4
 };
 
-extern USBD_HandleTypeDef hUsbDeviceFS;
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
 void AntProtocolTask(void *argument);
@@ -214,6 +215,8 @@ void StartDefaultTask(void *argument)
   /* USER CODE END StartDefaultTask */
 }
 
+/* Private application code --------------------------------------------------*/
+/* USER CODE BEGIN Application */
 void transmit_message(uint8_t *pBuffer, size_t len, uint8_t block_tick) {
   uint8_t status = USBD_BUSY;
   uint8_t block_ticks = 0;
@@ -225,8 +228,6 @@ void transmit_message(uint8_t *pBuffer, size_t len, uint8_t block_tick) {
   }
 }
 
-/* Private application code --------------------------------------------------*/
-/* USER CODE BEGIN Application */
 void AntProtocolTask(void *argument) {
   printf("ANT+ Protocol Task Starting\r\n");
 
