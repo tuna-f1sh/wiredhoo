@@ -20,6 +20,8 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "cmsis_os.h"
+#include "adc.h"
+#include "dma.h"
 #include "tim.h"
 #include "usart.h"
 #include "usb_otg.h"
@@ -91,12 +93,16 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
   MX_USB_OTG_FS_PCD_Init();
   MX_USART1_UART_Init();
   MX_TIM2_Init();
   MX_TIM3_Init();
+  MX_ADC1_Init();
   /* USER CODE BEGIN 2 */
   USBD_TEMPLATE_Start(&hUsbDeviceFS);
+  // TODO trainer task init add to task
+  tim2_capture_setup();
   /* USER CODE END 2 */
 
   /* Init scheduler */
@@ -182,7 +188,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
   }
   /* USER CODE BEGIN Callback 1 */
   if (htim->Instance == TIM2) {
-    speed_period_elapsed_callback();
+    tim2_period_elapsed_callback();
   }
   /* USER CODE END Callback 1 */
 }

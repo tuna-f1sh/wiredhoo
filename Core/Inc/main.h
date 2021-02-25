@@ -58,6 +58,12 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
+#define VSENSE_Pin GPIO_PIN_0
+#define VSENSE_GPIO_Port GPIOA
+#define ISENSE_Pin GPIO_PIN_1
+#define ISENSE_GPIO_Port GPIOA
+#define EMF_SENSE_Pin GPIO_PIN_2
+#define EMF_SENSE_GPIO_Port GPIOA
 #define RLED_Pin GPIO_PIN_0
 #define RLED_GPIO_Port GPIOB
 #define GLED_Pin GPIO_PIN_1

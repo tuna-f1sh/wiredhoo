@@ -33,7 +33,7 @@
 #define TIMEOUT_PERIOD            500 // ms
 #define TIMEOUT_OVC_COUNT TIMEOUT_PERIOD / (COUNTER_TOP / F_CLK)
 
-volatile static uint8_t sSpeedState = IDLE;
+volatile static uint8_t sCaptureState = IDLE;
 volatile static uint32_t sTick = 0;
 volatile static uint8_t sHead = 0;
 volatile static uint16_t sTIM2_OVC = 0;
@@ -52,7 +52,7 @@ void MX_TIM2_Init(void)
   htim2.Instance = TIM2;
   htim2.Init.Prescaler = 0;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = COUNTER_TOP;
+  htim2.Init.Period = 4294967295;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_IC_Init(&htim2) != HAL_OK)
@@ -132,6 +132,9 @@ void HAL_TIM_IC_MspInit(TIM_HandleTypeDef* tim_icHandle)
     GPIO_InitStruct.Alternate = GPIO_AF1_TIM2;
     HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
+    /* TIM2 interrupt Init */
+    HAL_NVIC_SetPriority(TIM2_IRQn, 5, 0);
+    HAL_NVIC_EnableIRQ(TIM2_IRQn);
   /* USER CODE BEGIN TIM2_MspInit 1 */
 
   /* USER CODE END TIM2_MspInit 1 */
@@ -197,6 +200,8 @@ void HAL_TIM_IC_MspDeInit(TIM_HandleTypeDef* tim_icHandle)
     */
     HAL_GPIO_DeInit(GPIOA, GPIO_PIN_5);
 
+    /* TIM2 interrupt Deinit */
+    HAL_NVIC_DisableIRQ(TIM2_IRQn);
   /* USER CODE BEGIN TIM2_MspDeInit 1 */
 
   /* USER CODE END TIM2_MspDeInit 1 */
@@ -220,7 +225,7 @@ void HAL_TIM_PWM_MspDeInit(TIM_HandleTypeDef* tim_pwmHandle)
 }
 
 /* USER CODE BEGIN 1 */
-void speed_setup(void) {
+void tim2_capture_setup(void) {
   HAL_TIM_Base_Start_IT(&htim2);
   HAL_TIM_IC_Start_IT(&htim2, TIM_CHANNEL_1);
 }
@@ -230,7 +235,7 @@ static inline float ticks_to_speed(uint32_t ticks) {
 }
 
 // returns speed in km/h
-uint32_t calc_speed(void) {
+uint32_t tim2_calc_speed(void) {
   uint32_t ret = 0;
 
   // if there is a sample, otherwise will return 0
@@ -244,12 +249,12 @@ uint32_t calc_speed(void) {
 void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef* htim) {
   if (htim->Instance == TIM2) {
     // first sample
-    if(sSpeedState == IDLE) {
+    if(sCaptureState == IDLE) {
       sTick = TIM2->CCR1;
       sTIM2_OVC = 0;
-      sSpeedState = DONE;
+      sCaptureState = DONE;
     // after first, T1 updates during calculation
-    } else if(sSpeedState == DONE) {
+    } else if(sCaptureState == DONE) {
       // calculate period in ticks since last T1 using current count value as T2
       gTicks[sHead] = (TIM2->CCR1 + (sTIM2_OVC * COUNTER_TOP)) - sTick;
       // set new T1 to current count for next edge
@@ -262,14 +267,14 @@ void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef* htim) {
   }
 }
 
-void speed_period_elapsed_callback(void) {
+void tim2_period_elapsed_callback(void) {
   if (sTIM2_OVC < TIMEOUT_OVC_COUNT) {
     sTIM2_OVC++;
   } else {
     // clear buffer speed will read from
     gTicks[!sHead] = 0;
     // reset state for new measurement
-    sSpeedState = IDLE;
+    sCaptureState = IDLE;
   }
 }
 /* USER CODE END 1 */
