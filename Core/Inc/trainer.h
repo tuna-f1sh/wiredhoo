@@ -40,16 +40,20 @@ typedef enum {
 } TrainerFSM_t;
 
 typedef union {
-  uint8_t power_calibration: 1;
-  uint8_t resistance_calibration: 1;
-  uint8_t user_configuration: 1;
+  struct {
+    uint8_t power_calibration: 1;
+    uint8_t resistance_calibration: 1;
+    uint8_t user_configuration: 1;
+  };
   uint8_t byte;
 } TrainerStatus_t;
 
 typedef union {
-  uint8_t reserved:4;
-  uint8_t temperature:2;
-  uint8_t speed:2;
+  struct {
+    uint8_t reserved:4;
+    uint8_t temperature:2;
+    uint8_t speed:2;
+  };
   uint8_t byte;
 } TrainerCalibCond_t;
 
