@@ -22,7 +22,7 @@ static const char* ant_version = ANT_VERSION;
 
 ANT_MessageStatus_t process_ant_request(uint8_t *pBuffer, size_t len, uint8_t *pReply);
 ANT_MessageStatus_t process_ant_configuration(uint8_t config, uint8_t *pBuffer, size_t len);
-inline void channel_message_reply(uint8_t *pBuffer, uint8_t code, uint8_t *pReply);
+inline void channel_message_reply(uint8_t *pBuffer, uint8_t code, bool rf_event, uint8_t *pReply);
 ANT_MessageStatus_t process_ant_broadcast(uint8_t event, uint8_t *pBuffer, size_t len);
 
 ANT_Device_t power_device = {
@@ -78,7 +78,7 @@ ANT_MessageStatus_t process_ant_message(uint8_t *pMessage, size_t len, uint8_t *
           case MESG_OPEN_CHANNEL_ID:
           case MESG_CLOSE_CHANNEL_ID:
           case MESG_OPEN_RX_SCAN_MODE_ID:
-            channel_message_reply(pBuffer, process_ant_configuration(msg, pBuffer, len - 1), pReply);
+            channel_message_reply(pBuffer, process_ant_configuration(msg, pBuffer, len - 1), false, pReply);
             break;
           // --- device/channel configuration messages ---
           // not all are covered here but commonly used and supported are
@@ -96,7 +96,7 @@ ANT_MessageStatus_t process_ant_message(uint8_t *pMessage, size_t len, uint8_t *
           case MESG_SEARCH_WAVEFORM_ID:
           case MESG_ENABLE_LED:
           case MESG_ENABLE_EXT_MESSAGE:
-            channel_message_reply(pBuffer, process_ant_configuration(msg, pBuffer, len - 1), pReply);
+            channel_message_reply(pBuffer, process_ant_configuration(msg, pBuffer, len - 1), false, pReply);
             break;
           // --- request / response ---
           case MESG_REQUEST_ID:
@@ -109,7 +109,7 @@ ANT_MessageStatus_t process_ant_message(uint8_t *pMessage, size_t len, uint8_t *
             break;
           case MESG_ACKNOWLEDGED_DATA_ID:
             ret = process_ant_broadcast(msg, pBuffer, len);
-            channel_message_reply(pBuffer, EVENT_TRANSFER_TX_COMPLETED, pReply);
+            channel_message_reply(pBuffer, EVENT_TRANSFER_TX_COMPLETED, true, pReply);
             break;
           // TODO - support burst
           // --- channel events receieved ---
@@ -422,10 +422,10 @@ void ant_construct_message(uint8_t id, uint8_t size, uint8_t channel, uint8_t *p
   pMsg[ANT_MESSAGE_SIZE(pMsg) - 1] = calculate_crc(pMsg, ANT_MESSAGE_SIZE(pMsg) - 1);
 }
 
-inline void channel_message_reply(uint8_t *pBuffer, uint8_t code, uint8_t *pReply) {
+inline void channel_message_reply(uint8_t *pBuffer, uint8_t code, bool rf_event, uint8_t *pReply) {
   pReply[1] = MESG_RESPONSE_EVENT_SIZE;
   pReply[2] = MESG_RESPONSE_EVENT_ID;
-  pReply[3] = pBuffer[BUFFER_INDEX_CHANNEL_NUM]; // channel
+  pReply[3] = rf_event ? 0x01 : pBuffer[BUFFER_INDEX_CHANNEL_NUM]; // channel
   pReply[4] = pBuffer[BUFFER_INDEX_MESG_ID]; // initiating request
   pReply[5] = code;
 }
