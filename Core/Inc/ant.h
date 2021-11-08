@@ -125,6 +125,7 @@ typedef struct {
   uint8_t event_counter;
   uint8_t page_counter;
   uint8_t channel;
+  uint8_t tid;
   uint8_t last_request[8];
   TimerHandle_t *timer;
 } ANT_Device_t;
@@ -136,6 +137,6 @@ uint8_t ant_process_tx_event(uint8_t *pMsg, size_t len);
 void transmit_message(uint8_t *pBuffer, size_t len, uint8_t block_tick);
 void ant_generate_data_page(ANT_Device_t *dev, uint8_t *page);
 void ant_generate_common_page(uint8_t id, uint8_t *page);
-uint8_t ant_start_device(ANT_Device_t *dev);
+uint8_t ant_start_device(ANT_Device_t *dev, uint8_t channel);
 uint8_t ant_stop_device(ANT_Device_t *dev);
 uint8_t ant_any_channels_open(void);

@@ -1,0 +1,14 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+pytest = "*"
+openant = {editable = true, ref = "master", git = "https://github.com/tuna-f1sh/openant"}
+
+[dev-packages]
+pytest-timeout = "*"
+
+[requires]
+python_version = "3.9"

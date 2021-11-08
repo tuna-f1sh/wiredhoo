@@ -109,16 +109,19 @@ void vTimerCallback(TimerHandle_t xTimer) {
      timer's ID.  Obtain the count. */
   id = (uint32_t) pvTimerGetTimerID(xTimer);
 
-  if (id == power_device.channel) {
+  if (id == power_device.tid) {
     ant_generate_data_page(&power_device, timer_data);
     ant_construct_data_message(MESG_BROADCAST_DATA_ID, MESG_EXTENDED_SIZE, &power_device, timer_msg, timer_data);
     xMessageBufferSend(xAntDeviceRxBuffer, timer_msg, ANT_MESSAGE_SIZE(timer_msg), 0);
     HAL_GPIO_TogglePin(GLED_GPIO_Port, GLED_Pin);
-  } else if (id == fec_device.channel) {
+
+  } else if (id == fec_device.tid) {
     ant_generate_data_page(&fec_device, timer_data);
     ant_construct_data_message(MESG_BROADCAST_DATA_ID, MESG_EXTENDED_SIZE, &fec_device, timer_msg, timer_data);
     xMessageBufferSend(xAntDeviceRxBuffer, timer_msg, ANT_MESSAGE_SIZE(timer_msg), 0);
+    HAL_GPIO_TogglePin(GLED_GPIO_Port, GLED_Pin);
   }
+
 }
 
 void ant_device_init(ANT_Device_t *dev, TimerHandle_t *timer, StaticTimer_t *stimer, char *name) {
@@ -126,15 +129,17 @@ void ant_device_init(ANT_Device_t *dev, TimerHandle_t *timer, StaticTimer_t *sti
       name,
       pdMS_TO_TICKS(PERIOD_TO_MS(dev->period)),
       pdTRUE,
-      // use channel as timer id
-      (void*) (uint32_t) dev->channel,
+      // assign timer id
+      (void*) (uint32_t) dev->tid,
       vTimerCallback,
       stimer
   );
+
   if( *timer == NULL ) {
     Error_Handler();
   } else {
     dev->timer = timer;
+    // don't start here, start when channel is configured
     /* xTimerStart(*timer, 0); */
   }
 }

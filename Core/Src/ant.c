@@ -32,7 +32,8 @@ ANT_Device_t power_device = {
   .period = ANT_PERIOD_POWER,
   .event_counter = 0,
   .page_counter = 0,
-  .channel = ANT_FAKE_CH_POWER,
+  .channel = 0,
+  .tid = 0,
 };
 
 ANT_Device_t fec_device = {
@@ -42,7 +43,8 @@ ANT_Device_t fec_device = {
   .period = ANT_PERIOD_FEC,
   .event_counter = 0,
   .page_counter = 0,
-  .channel = ANT_FAKE_CH_FEC,
+  .channel = 0,
+  .tid = 1,
 };
 extern Trainer_t trainer;
 
@@ -75,11 +77,13 @@ ANT_MessageStatus_t process_ant_message(uint8_t *pMessage, size_t len, uint8_t *
             HAL_GPIO_WritePin(ANT_CONTROL_LED_PORT, ANT_CONTROL_LED, 1);
             pReply[3] = 0x20; // watchdog reset
             break;
+
           case MESG_OPEN_CHANNEL_ID:
           case MESG_CLOSE_CHANNEL_ID:
           case MESG_OPEN_RX_SCAN_MODE_ID:
             channel_message_reply(pBuffer, process_ant_configuration(msg, pBuffer, len - 1), false, pReply);
             break;
+
           // --- device/channel configuration messages ---
           // not all are covered here but commonly used and supported are
           case MESG_UNASSIGN_CHANNEL_ID:
@@ -98,19 +102,23 @@ ANT_MessageStatus_t process_ant_message(uint8_t *pMessage, size_t len, uint8_t *
           case MESG_ENABLE_EXT_MESSAGE:
             channel_message_reply(pBuffer, process_ant_configuration(msg, pBuffer, len - 1), false, pReply);
             break;
+
           // --- request / response ---
           case MESG_REQUEST_ID:
             ret = process_ant_request(pBuffer, len - 1, pReply);
             break;
+
           // --- channel data received ---
           // no action on this for emulated devices...
           case MESG_BROADCAST_DATA_ID:
             ret = process_ant_broadcast(msg, pBuffer, len);
             break;
+
           case MESG_ACKNOWLEDGED_DATA_ID:
             ret = process_ant_broadcast(msg, pBuffer, len);
             channel_message_reply(pBuffer, EVENT_TRANSFER_TX_COMPLETED, true, pReply);
             break;
+
           // TODO - support burst
           // --- channel events receieved ---
           // TODO - do something here
@@ -122,6 +130,7 @@ ANT_MessageStatus_t process_ant_message(uint8_t *pMessage, size_t len, uint8_t *
 
         // stick CRC at end of message
         pReply[ANT_MESSAGE_SIZE(pReply) - 1] = calculate_crc(pReply, ANT_MESSAGE_SIZE(pReply) - 1);
+
       } else {
         pReply[1] = 0x01;
         pReply[2] = 0xAE; // serial error message
@@ -129,6 +138,7 @@ ANT_MessageStatus_t process_ant_message(uint8_t *pMessage, size_t len, uint8_t *
         pReply[ANT_MESSAGE_SIZE(pReply) - 1] = calculate_crc(pReply, ANT_MESSAGE_SIZE(pReply) - 1);
         ret = MESG_CRC_ERR;
       }
+
     } else {
       pReply[1] = 0x01;
       pReply[2] = 0xAE; // serial error message
@@ -136,6 +146,7 @@ ANT_MessageStatus_t process_ant_message(uint8_t *pMessage, size_t len, uint8_t *
       pReply[ANT_MESSAGE_SIZE(pReply) - 1] = calculate_crc(pReply, ANT_MESSAGE_SIZE(pReply) - 1);
       ret = MESG_SIZE_ERR;
     }
+
   } else {
     pReply[1] = 0x01;
     pReply[2] = 0xAE; // serial error message
@@ -153,6 +164,7 @@ ANT_MessageStatus_t process_ant_request(uint8_t *pBuffer, size_t len, uint8_t *p
   uint8_t request = pBuffer[BUFFER_INDEX_MESG_DATA];
 
   switch (request) {
+
     case MESG_CAPABILITIES_ID:
       pReply[1] = MESG_CAPABILITIES_SIZE + 1; // plus for extended options
       pReply[2] = MESG_CAPABILITIES_ID;
@@ -179,6 +191,7 @@ ANT_MessageStatus_t process_ant_request(uint8_t *pBuffer, size_t len, uint8_t *p
       /* pReply[8] = 0x00; // sensRcore channels */
       /* pReply[9] = 0xDF; // advanced 3 */
       break;
+
     case MESG_CHANNEL_STATUS_ID:
       pReply[1] = MESG_CHANNEL_STATUS_SIZE;
       pReply[2] = MESG_CHANNEL_STATUS_ID;
@@ -189,6 +202,7 @@ ANT_MessageStatus_t process_ant_request(uint8_t *pBuffer, size_t len, uint8_t *p
         ret = MESG_INVALID_REQ;
       }
       break;
+
     case MESG_CHANNEL_ID_ID:
       // TODO reply with channel setup info
       pReply[1] = MESG_CHANNEL_ID_SIZE;
@@ -203,19 +217,23 @@ ANT_MessageStatus_t process_ant_request(uint8_t *pBuffer, size_t len, uint8_t *p
         ret = MESG_INVALID_REQ;
       }
       break;
+
     case 0x61: // device serial
       pReply[1] = 0x04;
       pReply[2] = 0x61;
       memcpy(&pReply[3], &device_serial, 4);
       break;
+
     case MESG_VERSION_ID:
       pReply[1] = MESG_VERSION_SIZE;
       pReply[2] = MESG_VERSION_ID;
       memcpy(&pReply[3], ant_version, 9);
       break;
+
     default:
       ret = MESG_UNKNOWN_ID;
       break;
+
   }
 
   return ret;
@@ -316,10 +334,10 @@ ANT_MessageStatus_t process_ant_configuration(uint8_t config, uint8_t *pBuffer, 
             ret = CHANNEL_ID_NOT_SET;
           }
           if (ant_channels[channel].device_type == ANT_DEVTYPE_POWER || ant_channels[channel].device_type == 0) {
-            ant_start_device(&power_device);
+            ant_start_device(&power_device, channel);
           }
           if (ant_channels[channel].device_type == ANT_DEVTYPE_FEC || ant_channels[channel].device_type == 0) {
-            ant_start_device(&fec_device);
+            ant_start_device(&fec_device, channel);
           }
           break;
         case MESG_CLOSE_CHANNEL_ID:
@@ -340,8 +358,8 @@ ANT_MessageStatus_t process_ant_configuration(uint8_t config, uint8_t *pBuffer, 
           } else {
             ret = CHANNEL_IN_WRONG_STATE;
           }
-          ant_start_device(&power_device);
-          ant_start_device(&fec_device);
+          ant_start_device(&power_device, channel);
+          ant_start_device(&fec_device, channel);
           break;
         case MESG_ENABLE_LED:
           HAL_GPIO_WritePin(ANT_CONTROL_LED_PORT, ANT_CONTROL_LED, !pBuffer[BUFFER_INDEX_MESG_DATA]);
@@ -366,9 +384,11 @@ ANT_MessageStatus_t process_ant_broadcast(uint8_t event, uint8_t *pBuffer, size_
   uint8_t channel = pBuffer[BUFFER_INDEX_CHANNEL_NUM];
 
   switch (event) {
+
     case MESG_BROADCAST_DATA_ID:
       ret = MESG_NO_REPLY;
       break;
+
     // ret MESG_OK will return ACK
     case MESG_ACKNOWLEDGED_DATA_ID:
       // check for channel assigned to fake device - maybe should check for extended channel id instead?
@@ -392,6 +412,7 @@ ANT_MessageStatus_t process_ant_broadcast(uint8_t event, uint8_t *pBuffer, size_
         memcpy(&fec_device.last_request, &pBuffer[BUFFER_INDEX_DATA0], 8);
       }
       break;
+
     default:
       ret = MESG_UNKNOWN_ID;
       break;
@@ -458,8 +479,10 @@ uint8_t ant_process_tx_event(uint8_t *pMsg, size_t len) {
           ant_channels[i].device_type = device_type;
           ant_channels[i].transmission_type = trans_type;
         }
+
         // set the packet channel is fake channel not fake device...getting confusing but...
         pBuffer[BUFFER_INDEX_CHANNEL_NUM] = i | (pBuffer[BUFFER_INDEX_CHANNEL_NUM] & SEQUENCE_NUMBER_MASK);
+
         if (ant_device.ext_enabled) {
           // re-calculate CRC due to potential channel change
           pMsg[ANT_MESSAGE_SIZE(pMsg) - 1] = calculate_crc(pMsg, ANT_MESSAGE_SIZE(pMsg) - 1);
@@ -467,12 +490,15 @@ uint8_t ant_process_tx_event(uint8_t *pMsg, size_t len) {
           // re-order hold message for just standard size
           ant_construct_message(msg, MESG_DATA_SIZE, i | (pBuffer[BUFFER_INDEX_CHANNEL_NUM] & SEQUENCE_NUMBER_MASK), pMsg, pData);
         }
+
         // TODO add this to a USBD Tx stream
         transmit_message(pMsg, ANT_MESSAGE_SIZE(pMsg), 20);
+
         if (DEBUG && DEBUG_CH_TX_EVENT) {
           printf("ANT+ Tx Event: ");
           print_hex((char*) pMsg, len);
         }
+
       }
     }
 
@@ -484,6 +510,7 @@ uint8_t ant_process_tx_event(uint8_t *pMsg, size_t len) {
 
 void ant_generate_common_page(uint8_t id, uint8_t *page) {
   switch (id) {
+
     case 0x50:
       page[0] = 0x50;
       page[1] = 0xff;
@@ -494,6 +521,7 @@ void ant_generate_common_page(uint8_t id, uint8_t *page) {
       page[6] = ANT_MODEL_NO & 0xff; // model number
       page[7] = ANT_MODEL_NO >> 8;
       break;
+
     case 0x51:
       page[0] = 0x51;
       page[1] = 0xff;
@@ -504,6 +532,7 @@ void ant_generate_common_page(uint8_t id, uint8_t *page) {
       page[6] = (device_serial >> 16) & 0xff;
       page[7] = (device_serial >> 24) & 0xff;
       break;
+
     default:
       break;
   }
@@ -513,6 +542,7 @@ void ant_generate_data_page(ANT_Device_t *dev, uint8_t *page) {
   uint8_t process_ret = 1;
 
   switch (dev->device_type) {
+
     case ANT_DEVTYPE_POWER:
       // set page counter to 0xD0 so that we send the calibration response for a number of cycles before rolling over
       if (dev->last_request[0] == ANT_POWER_CALIBRATION_PAGE) {
@@ -555,10 +585,12 @@ void ant_generate_data_page(ANT_Device_t *dev, uint8_t *page) {
       }
 
       dev->page_counter++;
+
       if ((dev->page_counter > 121) && (dev->page_counter < 0xd0)) {
         dev->page_counter = 0;
       }
       break;
+
     case ANT_DEVTYPE_FEC:
       if (fec_device.last_request[0] != 0) {
         process_ret = trainer_process_request(dev->last_request, page);
@@ -576,6 +608,12 @@ void ant_generate_data_page(ANT_Device_t *dev, uint8_t *page) {
           } else {
             trainer_generate_page(ANT_FEC_GENERAL_PAGE, page);
           }
+        // 0x50 common page 1
+        } else if (dev->page_counter == 60) {
+          ant_generate_common_page(ANT_COMMON_PAGE1, page);
+        // 0x51 common page 2
+        } else if (dev->page_counter == 121) {
+          ant_generate_common_page(ANT_COMMON_PAGE2, page);
         // every 20 show settings page
         } else if (dev->page_counter % 20 == 0) {
           trainer_generate_page(ANT_FEC_GENERAL_SET_PAGE, page);
@@ -598,19 +636,23 @@ void ant_generate_data_page(ANT_Device_t *dev, uint8_t *page) {
       }
 
       dev->page_counter++;
+
       if ((dev->page_counter > 121) && (dev->page_counter < 0xd0)) {
         dev->page_counter = 0;
       }
       break;
+
     default:
       break;
   }
 }
 
-uint8_t ant_start_device(ANT_Device_t *dev) {
+uint8_t ant_start_device(ANT_Device_t *dev, uint8_t channel) {
   if( dev->timer == NULL ) {
     return 1;
   } else {
+    // set to assigned channel
+    dev->channel = channel;
     xTimerStart(*dev->timer, 0);
     return 0;
   }
@@ -623,6 +665,7 @@ uint8_t ant_stop_device(ANT_Device_t *dev) {
     xTimerStop(*dev->timer, 0);
     return 0;
   }
+
   // clear the LED as it was blinky in timer
   HAL_GPIO_WritePin(GLED_GPIO_Port, GLED_Pin, 1);
 }
