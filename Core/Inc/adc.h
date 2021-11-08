@@ -40,7 +40,10 @@ extern ADC_HandleTypeDef hadc1;
 void MX_ADC1_Init(void);
 
 /* USER CODE BEGIN Prototypes */
-
+uint16_t get_vsense(void);
+uint16_t get_emfsense(void);
+uint16_t get_isense(void);
+void setup_adc_channels(void);
 /* USER CODE END Prototypes */
 
 #ifdef __cplusplus

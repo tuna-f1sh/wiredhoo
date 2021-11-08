@@ -81,6 +81,10 @@ void Error_Handler(void);
 #define BLINK_LED                 BLED_Pin
 #define ANT_CONTROL_LED_PORT      GLED_GPIO_Port
 #define ANT_CONTROL_LED           GLED_Pin
+
+#define VSENSE_GAIN               1.0f
+#define ISENSE_GAIN               1.0f
+#define EMFSENSE_GAIN             1.0f
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus

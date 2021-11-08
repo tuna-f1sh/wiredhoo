@@ -246,6 +246,16 @@ uint32_t tim2_calc_speed(void) {
   return ret;
 }
 
+uint32_t tim2_calc_frequency(void) {
+  uint32_t ret = 0;
+
+  if (gTicks[!sHead] != 0) {
+    ret = F_CLK / gTicks[!sHead];
+  }
+
+  return ret;
+}
+
 void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef* htim) {
   if (htim->Instance == TIM2) {
     // first sample

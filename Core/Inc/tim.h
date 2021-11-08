@@ -47,6 +47,7 @@ void HAL_TIM_MspPostInit(TIM_HandleTypeDef *htim);
 void tim2_period_elapsed_callback(void);
 uint32_t tim2_calc_speed(void);
 void tim2_capture_setup(void);
+uint32_t tim2_calc_frequency(void);
 /* USER CODE END Prototypes */
 
 #ifdef __cplusplus

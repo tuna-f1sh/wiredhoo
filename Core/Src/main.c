@@ -101,6 +101,8 @@ int main(void)
   MX_ADC1_Init();
   /* USER CODE BEGIN 2 */
   USBD_TEMPLATE_Start(&hUsbDeviceFS);
+  // TODO put this in whatever uses it
+  setup_adc_channels();
   // TODO trainer task init add to task
   tim2_capture_setup();
   /* USER CODE END 2 */

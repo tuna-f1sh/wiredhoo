@@ -21,7 +21,7 @@
 #include "adc.h"
 
 /* USER CODE BEGIN 0 */
-
+__IO uint16_t ADC_raw[3]; // circular DMA buffer for ADC channels
 /* USER CODE END 0 */
 
 ADC_HandleTypeDef hadc1;
@@ -54,7 +54,19 @@ void MX_ADC1_Init(void)
   */
   sConfig.Channel = ADC_CHANNEL_0;
   sConfig.Rank = 1;
-  sConfig.SamplingTime = ADC_SAMPLETIME_3CYCLES;
+  sConfig.SamplingTime = ADC_SAMPLETIME_480CYCLES;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfig.Channel = ADC_CHANNEL_1;
+  sConfig.Rank = 2;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfig.Channel = ADC_CHANNEL_2;
+  sConfig.Rank = 3;
   if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
   {
     Error_Handler();
@@ -137,7 +149,22 @@ void HAL_ADC_MspDeInit(ADC_HandleTypeDef* adcHandle)
 }
 
 /* USER CODE BEGIN 1 */
+void setup_adc_channels(void) {
+  HAL_ADC_Start_DMA(&hadc1, (uint32_t *) ADC_raw, 3);
+};
 
+// TODO these all need correct scaling
+uint16_t get_vsense(void) {
+  return (uint16_t) (((float) ADC_raw[0] / 4095.0) * 3.3 * VSENSE_GAIN * 1000);
+};
+
+uint16_t get_emfsense(void) {
+  return (uint16_t) (((float) ADC_raw[1] / 4095.0) * 3.3 * EMFSENSE_GAIN * 1000);
+};
+
+uint16_t get_isense(void) {
+  return (uint16_t) (((float) ADC_raw[2] / 4095.0) * 3.3 * ISENSE_GAIN * 1000);
+};
 /* USER CODE END 1 */
 
 /************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/

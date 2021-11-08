@@ -21,6 +21,7 @@ uint8_t trainer_process_request(uint8_t *request, uint8_t *page) {
   uint8_t dpage = request[0];
 
   switch (dpage) {
+
     case ANT_FEC_CALIBRATION_REQ:
       if ((request[1] & ANT_FEC_SPIN_DOWN_MASK) == ANT_FEC_SPIN_DOWN_MASK) {
         trainer.fsm = SPIN_DOWN;
@@ -32,18 +33,21 @@ uint8_t trainer_process_request(uint8_t *request, uint8_t *page) {
         trainer_generate_page(ANT_FEC_CALIBRATION_REQ, page);
       }
       break;
+
     case ANT_FEC_DP_BASIC_RESISTANCE:
       trainer.resistance = request[7]; // 0-100%
       trainer.last_control = ANT_FEC_DP_BASIC_RESISTANCE;
       trainer.control_counter++;
       ret = 1;
       break;
+
     case ANT_FEC_DP_TARGET_POWER:
       trainer.target_power = request[6] | (request[7] << 8); // 0-4000 W
       trainer.last_control = ANT_FEC_DP_TARGET_POWER;
       trainer.control_counter++;
       ret = 1;
       break;
+
     case ANT_FEC_DP_WIND_RESISTANCE:
       trainer.wind_resistance = request[5]; // 0.01 kg/m 0-1.86 W
       trainer.wind_speed = request[6]; // -127/+127
@@ -52,6 +56,7 @@ uint8_t trainer_process_request(uint8_t *request, uint8_t *page) {
       trainer.control_counter++;
       ret = 1;
       break;
+
     case ANT_FEC_DP_TRACK_RESISTANCE:
       trainer.grade = request[5] | (request[6] << 8); // 0.01 % -200.00 - +200.00
       trainer.coef_rolling = request[6]; // 5e-5 0.0-0.0127
@@ -59,6 +64,7 @@ uint8_t trainer_process_request(uint8_t *request, uint8_t *page) {
       trainer.control_counter++;
       ret = 1;
       break;
+
     case ANT_FEC_DP_USER_CONFIG:
       user.weight = request[1] | (request[2] << 8); // 0.01 kg 0-655.34 kg
       user.wheel_offset = request[4] & 0x0F; // 1 mm 0 - 10 mm
@@ -67,20 +73,25 @@ uint8_t trainer_process_request(uint8_t *request, uint8_t *page) {
       user.gear_ratio = request[7]; // 0.03 0.03 - 7.65
       ret = 1;
       break;
+
     case ANT_FEC_DP_FE_CAPABILITES:
       trainer_generate_page(ANT_FEC_DP_FE_CAPABILITES, page);
       break;
+
     case ANT_COMMON_PAGE1:
     case ANT_COMMON_PAGE2:
       ant_generate_common_page(dpage, page);
       break;
+
     case ANT_COMMON_REQ_PAGE:
       // this also contains number of times to send bits 0-6 and 7 until ack if 0x80 but ignore for now
       trainer_generate_page(request[6], page);
       break;
+
     default:
       ret = 1;
       break;
+
   }
 
   return ret;
@@ -90,6 +101,7 @@ uint8_t trainer_generate_page(uint8_t data_page, uint8_t *page) {
   uint8_t ret = 0;
 
   switch(data_page) {
+
     case ANT_FEC_CALIBRATION_REQ:
       page[0] = ANT_FEC_CALIBRATION_REQ;
       page[1] = trainer.calibration_status;
@@ -100,6 +112,7 @@ uint8_t trainer_generate_page(uint8_t data_page, uint8_t *page) {
       page[6] = LOW_BYTE(trainer.spin_down_period);
       page[7] = HIGH_BYTE(trainer.spin_down_period);
       break;
+
     case ANT_FEC_CALIBRATION_PROG:
       page[0] = ANT_FEC_CALIBRATION_PROG;
       page[1] = ANT_FEC_SPIN_DOWN_MASK; // send we are doing spin down
@@ -110,6 +123,7 @@ uint8_t trainer_generate_page(uint8_t data_page, uint8_t *page) {
       page[6] = 0xff; // target spin down time lsb ms
       page[7] = 0xff; // target spin down time hsb ms
       break;
+
     case ANT_FEC_DP_FE_CAPABILITES:
       page[0] = ANT_FEC_DP_FE_CAPABILITES;
       page[1] = 0xFF;
@@ -120,6 +134,7 @@ uint8_t trainer_generate_page(uint8_t data_page, uint8_t *page) {
       page[6] = 0xFF; // max resistance hsb
       page[7] = ANT_FEC_CAPABILITES;
       break;
+
     case ANT_COMMON_CMD_STATUS:
       page[0] = ANT_COMMON_CMD_STATUS;
       page[1] = (trainer.last_control == 0) ? 0xFF : trainer.last_control;
@@ -136,6 +151,7 @@ uint8_t trainer_generate_page(uint8_t data_page, uint8_t *page) {
         page[7] = HIGH_BYTE(trainer.target_power);
       }
       break;
+
     case ANT_FEC_GENERAL_PAGE:
       page[0] = ANT_FEC_GENERAL_PAGE;
       page[1] = ANT_FEC_TYPE;
@@ -146,6 +162,7 @@ uint8_t trainer_generate_page(uint8_t data_page, uint8_t *page) {
       page[6] = 0xff; // heart rate
       page[7] = ANT_FEC_GEN_CAPABILITES | (trainer.state << 4);
       break;
+
     case ANT_FEC_GENERAL_SET_PAGE:
       page[0] = ANT_FEC_GENERAL_SET_PAGE;
       page[1] = 0xff;
@@ -156,6 +173,7 @@ uint8_t trainer_generate_page(uint8_t data_page, uint8_t *page) {
       page[6] = trainer.resistance;
       page[7] = trainer.state << 4;
       break;
+
     case ANT_FEC_TRAINER_TORQUE_PAGE:
       page[0] = ANT_FEC_TRAINER_TORQUE_PAGE;
       page[1] = 0x00;
@@ -166,6 +184,7 @@ uint8_t trainer_generate_page(uint8_t data_page, uint8_t *page) {
       page[6] = HIGH_BYTE(trainer.accumulated_torque);
       page[7] = trainer.state << 4;
       break;
+
     case ANT_FEC_KICKR_SIG:
       page[0] = ANT_FEC_KICKR_SIG;
       page[1] = 0xFF;
