@@ -74,6 +74,8 @@ void Error_Handler(void);
 #define DEBUG                     1
 #define DEBUG_ANT                 DEBUG && 1
 #define DEBUG_CH_TX_EVENT         DEBUG && 0
+// PA5 is timer counter input (light gate sense)
+// PA6 is PWM output (emf MOSFET)
 
 #define USBD_RX_LED_PORT          RLED_GPIO_Port
 #define USBD_RX_LED               RLED_Pin

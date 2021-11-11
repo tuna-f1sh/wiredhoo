@@ -48,6 +48,9 @@ void tim2_period_elapsed_callback(void);
 uint32_t tim2_calc_speed(void);
 void tim2_capture_setup(void);
 uint32_t tim2_calc_frequency(void);
+void tim3_pwm_init(void);
+void tim3_pwm_set_value(uint32_t channel, uint16_t value);
+void tim3_pwm_set_duty(uint32_t channel, uint8_t duty);
 /* USER CODE END Prototypes */
 
 #ifdef __cplusplus

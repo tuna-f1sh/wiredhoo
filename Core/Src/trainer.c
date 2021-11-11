@@ -56,6 +56,8 @@ float calculate_rider_power(uint16_t update_freq) {
 
   // set for next calculation
   last_ke = new_ke;
+
+  return power;
 }
 
 // TODO spindown routine: do a system power calculation from 36 km/h down to ~0
@@ -75,6 +77,8 @@ float calculate_system_power(uint16_t update_freq) {
 
   // set for next calculation
   last_ke = new_ke;
+
+  return power;
 }
 
 uint8_t trainer_process_request(uint8_t *request, uint8_t *page) {

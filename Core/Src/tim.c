@@ -33,6 +33,11 @@
 #define TIMEOUT_PERIOD            500 // ms
 #define TIMEOUT_OVC_COUNT TIMEOUT_PERIOD / (COUNTER_TOP / F_CLK)
 
+// PWM
+#define PWM_FREQ 400UL
+#define PRESCALER 16
+#define TIMER_PERIOD_COUNT (uint16_t) (F_CLK / (PWM_FREQ * PRESCALER))
+
 volatile static uint8_t sCaptureState = IDLE;
 volatile static uint32_t sTick = 0;
 volatile static uint8_t sHead = 0;
@@ -84,7 +89,7 @@ void MX_TIM3_Init(void)
   htim3.Instance = TIM3;
   htim3.Init.Prescaler = 0;
   htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim3.Init.Period = 65535;
+  htim3.Init.Period = TIMER_PERIOD_COUNT;
   htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
   if (HAL_TIM_PWM_Init(&htim3) != HAL_OK)
@@ -225,6 +230,7 @@ void HAL_TIM_PWM_MspDeInit(TIM_HandleTypeDef* tim_pwmHandle)
 }
 
 /* USER CODE BEGIN 1 */
+// counter input capture on PA5 (tim2/ch1)
 void tim2_capture_setup(void) {
   HAL_TIM_Base_Start_IT(&htim2);
   HAL_TIM_IC_Start_IT(&htim2, TIM_CHANNEL_1);
@@ -286,6 +292,25 @@ void tim2_period_elapsed_callback(void) {
     gTicks[!sHead] = 0;
     // reset state for new measurement
     sCaptureState = IDLE;
+  }
+}
+
+// PWM output on PA6 (tim3/ch1)
+void tim3_pwm_init(void) {
+  HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);
+}
+
+void tim3_pwm_set_value(uint32_t channel, uint16_t value) {
+  __HAL_TIM_SET_COMPARE(&htim3, channel, value);
+}
+
+void tim3_pwm_set_duty(uint32_t channel, uint8_t duty) {
+  // 100% set compare to larger than period so high all time
+  if (duty == 100) {
+    tim3_pwm_set_value(channel, TIMER_PERIOD_COUNT + 1);
+  } else {
+    uint16_t count = (uint16_t) (((uint32_t) duty * TIMER_PERIOD_COUNT) / 100);
+    tim3_pwm_set_value(channel, count);
   }
 }
 /* USER CODE END 1 */

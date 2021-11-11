@@ -105,6 +105,7 @@ int main(void)
   setup_adc_channels();
   // TODO trainer task init add to task
   tim2_capture_setup();
+  tim3_pwm_init();
   /* USER CODE END 2 */
 
   /* Init scheduler */
