@@ -1,3 +1,4 @@
+#include <math.h>
 #include <string.h>
 #include "main.h"
 #include "utilities.h"
@@ -5,6 +6,7 @@
 #include "antdefines.h"
 #include "ant.h"
 #include "trainer.h"
+#include "tim.h"
 
 Trainer_t trainer;
 UserConfig_t user;
@@ -14,6 +16,65 @@ void trainer_init(void) {
   trainer.state = READY;
   /* trainer.status.resistance_calibration = 1; */
   trainer.wheel_dia = WHEEL_DIAMETER;
+}
+
+uint32_t calculate_flywheel_rps(void) {
+  uint32_t freq = tim2_calc_frequency();
+
+  // divide the light gate frequency by the number of segments per revolution for the revolutions per second of the flywheel
+  return freq / FLYWHEEL_TICKS_REVOLUTION;
+}
+
+float calculate_flywheel_angular_velocity(void) {
+  uint32_t rps = calculate_flywheel_rps();
+
+  // 2 * pi * rps /60
+  return (float) (rps * 2 * M_PI) / 60;
+}
+
+float calculate_system_kinetic_energy(void) {
+  float angular_v = calculate_flywheel_angular_velocity();
+
+  // 0.5 * I av^2
+  return 0.5 * SYSTEM_INERTIA * (angular_v * angular_v);
+}
+
+// TODO calculate spindown lookup and emf input
+float calculate_rider_power(uint16_t update_freq) {
+  static float last_ke;
+  float new_ke, delta_ke;
+  float power;
+
+  // get current kinetic energy in system and take away known losses to get rider input
+  new_ke = calculate_system_kinetic_energy(); // - spindown lookup - emf control
+
+  // calculate change since last sample
+  delta_ke = new_ke - last_ke;
+
+  // power is the change in ke with respect to time (tick rate of task); change in energy with time
+  power = delta_ke * update_freq;
+
+  // set for next calculation
+  last_ke = new_ke;
+}
+
+// TODO spindown routine: do a system power calculation from 36 km/h down to ~0
+float calculate_system_power(uint16_t update_freq) {
+  static float last_ke;
+  float new_ke, delta_ke;
+  float power;
+
+  // get current kinetic energy in system and take away known losses to get rider input
+  new_ke = calculate_system_kinetic_energy();
+
+  // calculate change since last sample
+  delta_ke = new_ke - last_ke;
+
+  // power is the change in ke with respect to time (tick rate of task); change in energy with time
+  power = delta_ke * update_freq;
+
+  // set for next calculation
+  last_ke = new_ke;
 }
 
 uint8_t trainer_process_request(uint8_t *request, uint8_t *page) {
@@ -167,7 +228,7 @@ uint8_t trainer_generate_page(uint8_t data_page, uint8_t *page) {
       page[0] = ANT_FEC_GENERAL_SET_PAGE;
       page[1] = 0xff;
       page[2] = 0xff;
-      page[3] = (uint8_t) (trainer.wheel_dia * PI); // cycle length is wheel circumference
+      page[3] = (uint8_t) (trainer.wheel_dia * M_PI); // cycle length is wheel circumference
       page[4] = LOW_BYTE(trainer.grade);
       page[5] = HIGH_BYTE(trainer.grade);
       page[6] = trainer.resistance;

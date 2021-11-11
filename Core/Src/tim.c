@@ -249,6 +249,7 @@ uint32_t tim2_calc_speed(void) {
 uint32_t tim2_calc_frequency(void) {
   uint32_t ret = 0;
 
+  // clock of TIM2 divided by the count in one cycle
   if (gTicks[!sHead] != 0) {
     ret = F_CLK / gTicks[!sHead];
   }
