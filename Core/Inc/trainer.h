@@ -63,10 +63,13 @@ typedef union {
 
 typedef struct {
   uint16_t power;
-  uint32_t accumulated_power;
+  uint16_t torque;
+  uint16_t accumulated_power;
+  uint8_t accumulated_power_counter; // update counter
   uint16_t speed;
   uint16_t accumulated_wheel;
   uint16_t accumulated_torque;
+  uint8_t accumulated_torque_counter; // update counter for wheel and torque
   uint8_t cadence;
   uint16_t target_power;
   uint16_t wheel_dia;

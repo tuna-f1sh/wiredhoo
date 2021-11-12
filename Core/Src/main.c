@@ -53,6 +53,8 @@
 USBD_HandleTypeDef hUsbDeviceFS;
 
 system_t gsystem = {
+  .ke = 0.0,
+  .omega = 0.0,
   .vin = 0,
   .csense = 0,
   .emf = 0,

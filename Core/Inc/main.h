@@ -39,6 +39,7 @@ extern "C" {
 /* USER CODE BEGIN ET */
 typedef struct {
   float ke; // system kinetic energy (N)
+  float omega; // flywheel angular velocity (rad/s)
   uint16_t vin; // input voltage (mV)
   uint16_t csense; // sense current (mA)
   uint16_t emf; // emf sense (mV)

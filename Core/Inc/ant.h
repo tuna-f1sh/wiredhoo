@@ -139,4 +139,5 @@ void ant_generate_data_page(ANT_Device_t *dev, uint8_t *page);
 void ant_generate_common_page(uint8_t id, uint8_t *page);
 uint8_t ant_start_device(ANT_Device_t *dev, uint8_t channel);
 uint8_t ant_stop_device(ANT_Device_t *dev);
+bool ant_device_active(ANT_Device_t *dev);
 uint8_t ant_any_channels_open(void);

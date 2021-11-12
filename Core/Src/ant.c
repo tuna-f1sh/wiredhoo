@@ -573,9 +573,12 @@ void ant_generate_data_page(ANT_Device_t *dev, uint8_t *page) {
         /* } else { */
         /*   trainer.power = 0; */
         /* } */
+        // accumulate power and counter
         trainer.accumulated_power += trainer.power;
+        trainer.accumulated_power_counter++;
+
         page[0] = ANT_POWER_STANDARD_PAGE; // general data
-        page[1] = dev->event_counter++;
+        page[1] = trainer.accumulated_power_counter;
         page[2] = 0xFF; // pedal power not used
         page[3] = 0xFF; // cadence not used
         page[4] = LOW_BYTE(trainer.accumulated_power); // accumulated power lsb
@@ -624,8 +627,14 @@ void ant_generate_data_page(ANT_Device_t *dev, uint8_t *page) {
         /*   trainer_generate_page(ANT_FEC_KICKR_SIG, page); */
         // otherwise main data
         } else {
+          // accumulate power and counter if power meter profile not running, otherwise leave it to that
+          if (ant_device_active(&power_device)) {
+            trainer.accumulated_power += trainer.power;
+            trainer.accumulated_power_counter++;
+          }
+
           page[0] = ANT_FEC_TRAINER_DATA_PAGE;
-          page[1] = dev->event_counter++;
+          page[1] = trainer.accumulated_power_counter;
           page[2] = trainer.cadence;
           page[3] = LOW_BYTE(trainer.accumulated_power); // accumulated power lsb
           page[4] = HIGH_BYTE(trainer.accumulated_power); // accumulated power hsb
@@ -668,6 +677,14 @@ uint8_t ant_stop_device(ANT_Device_t *dev) {
 
   // clear the LED as it was blinky in timer
   HAL_GPIO_WritePin(GLED_GPIO_Port, GLED_Pin, 1);
+}
+
+bool ant_device_active(ANT_Device_t *dev) {
+  if( dev->timer == NULL ) {
+    return 0;
+  } else {
+    return xTimerIsTimerActive(*dev->timer);
+  }
 }
 
 uint8_t ant_any_channels_open(void) {
