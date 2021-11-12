@@ -1,5 +1,6 @@
 #include <math.h>
 #include <string.h>
+#include <stdlib.h>
 #include "main.h"
 #include "utilities.h"
 #include "antmessage.h"
@@ -7,16 +8,10 @@
 #include "ant.h"
 #include "trainer.h"
 #include "tim.h"
+#include "adc.h"
 
 Trainer_t trainer;
 UserConfig_t user;
-
-void trainer_init(void) {
-  memset(&trainer, 0, sizeof(Trainer_t));
-  trainer.state = READY;
-  /* trainer.status.resistance_calibration = 1; */
-  trainer.wheel_dia = WHEEL_DIAMETER;
-}
 
 uint32_t calculate_flywheel_rps(void) {
   uint32_t freq = tim2_calc_frequency();
@@ -28,8 +23,11 @@ uint32_t calculate_flywheel_rps(void) {
 float calculate_flywheel_angular_velocity(void) {
   uint32_t rps = calculate_flywheel_rps();
 
+  // set global system var
+  gsystem.rps = rps;
+
   // 2 * pi * rps /60
-  return (float) (rps * 2 * M_PI) / 60;
+  return (float) ((float) rps * 2 * M_PI) / 60;
 }
 
 float calculate_system_kinetic_energy(void) {
@@ -42,20 +40,20 @@ float calculate_system_kinetic_energy(void) {
 // TODO calculate spindown lookup and emf input
 float calculate_rider_power(uint16_t update_freq) {
   static float last_ke;
-  float new_ke, delta_ke;
+  float delta_ke;
   float power;
 
   // get current kinetic energy in system and take away known losses to get rider input
-  new_ke = calculate_system_kinetic_energy(); // - spindown lookup - emf control
+  gsystem.ke = calculate_system_kinetic_energy(); // - spindown lookup - emf control
 
   // calculate change since last sample
-  delta_ke = new_ke - last_ke;
+  delta_ke = gsystem.ke - last_ke;
 
   // power is the change in ke with respect to time (tick rate of task); change in energy with time
   power = delta_ke * update_freq;
 
   // set for next calculation
-  last_ke = new_ke;
+  last_ke = gsystem.ke;
 
   return power;
 }
@@ -80,6 +78,53 @@ float calculate_system_power(uint16_t update_freq) {
 
   return power;
 }
+
+void trainer_init(void) {
+  // adc for sense channels
+  setup_adc_channels();
+
+  // tim2 to capture light gate
+  tim2_capture_setup();
+
+  // tim3 for emf control
+  tim3_pwm_init();
+  tim3_pwm_set_duty(TIM_CHANNEL_1, 50);
+
+  memset(&trainer, 0, sizeof(Trainer_t));
+  trainer.state = READY;
+  /* trainer.status.resistance_calibration = 1; */
+  trainer.wheel_dia = WHEEL_DIAMETER;
+}
+
+void trainer_run(void *argument) {
+  uint16_t freq = 1000;
+
+  // initialise the hardware being used and state
+  trainer_init();
+
+  for(;;)
+  {
+    // TODO actual timing not constant
+    trainer.power = calculate_rider_power(TRAINER_TASK_UPDATE_FREQ);
+
+    gsystem.vin = get_vsense();
+    gsystem.csense = get_csense();
+    gsystem.emf = get_emfsense();
+
+    if (freq < (1000 * 10)) {
+      freq += 100;
+    } else {
+      freq = 1000;
+    }
+
+    tim3_pwm_set_freq(freq);
+    tim3_pwm_set_duty(TIM_CHANNEL_1, 50);
+
+    osDelay(TRAINER_TASK_UPDATE_MS);
+  }
+}
+
+
 
 uint8_t trainer_process_request(uint8_t *request, uint8_t *page) {
   uint8_t ret = 0; // !0 means didn't add anything to return page

@@ -51,6 +51,13 @@
 
 /* USER CODE BEGIN PV */
 USBD_HandleTypeDef hUsbDeviceFS;
+
+system_t gsystem = {
+  .vin = 0,
+  .csense = 0,
+  .emf = 0,
+  .rps = 0
+};
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -101,11 +108,6 @@ int main(void)
   MX_ADC1_Init();
   /* USER CODE BEGIN 2 */
   USBD_TEMPLATE_Start(&hUsbDeviceFS);
-  // TODO put this in whatever uses it
-  setup_adc_channels();
-  // TODO trainer task init add to task
-  tim2_capture_setup();
-  tim3_pwm_init();
   /* USER CODE END 2 */
 
   /* Init scheduler */

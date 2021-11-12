@@ -36,6 +36,7 @@
 #include "ant.h"
 #include "antmessage.h"
 #include "antdefines.h"
+#include "trainer.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -81,6 +82,13 @@ const osThreadAttr_t antProtocolTask_attributes = {
   .name = "antProtocolTask",
   .priority = (osPriority_t) osPriorityHigh,
   .stack_size = 128 * 6
+};
+
+osThreadId_t trainerTask;
+const osThreadAttr_t trainerTask_attributes = {
+  .name = "trainerTask",
+  .priority = (osPriority_t) osPriorityHigh,
+  .stack_size = 128 * 4
 };
 
 extern USBD_HandleTypeDef hUsbDeviceFS;
@@ -186,6 +194,8 @@ void MX_FREERTOS_Init(void) {
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
   antProtocolTask = osThreadNew(AntProtocolTask, NULL, &antProtocolTask_attributes);
+
+  trainerTask = osThreadNew(trainer_run, NULL, &trainerTask_attributes);
   /* USER CODE END RTOS_THREADS */
 
   /* USER CODE BEGIN RTOS_EVENTS */

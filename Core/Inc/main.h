@@ -37,12 +37,18 @@ extern "C" {
 
 /* Exported types ------------------------------------------------------------*/
 /* USER CODE BEGIN ET */
-
+typedef struct {
+  float ke; // system kinetic energy (N)
+  uint16_t vin; // input voltage (mV)
+  uint16_t csense; // sense current (mA)
+  uint16_t emf; // emf sense (mV)
+  uint32_t rps; // revolutions per second of flywheel
+} system_t;
 /* USER CODE END ET */
 
 /* Exported constants --------------------------------------------------------*/
 /* USER CODE BEGIN EC */
-
+extern system_t gsystem;
 /* USER CODE END EC */
 
 /* Exported macro ------------------------------------------------------------*/
@@ -74,8 +80,8 @@ void Error_Handler(void);
 #define DEBUG                     1
 #define DEBUG_ANT                 DEBUG && 1
 #define DEBUG_CH_TX_EVENT         DEBUG && 0
-// PA5 is timer counter input (light gate sense)
-// PA6 is PWM output (emf MOSFET)
+// PA5 is timer counter input (light gate sense) A1 on Feather
+// PA6 is PWM output (emf MOSFET) A2 on Feather
 
 #define USBD_RX_LED_PORT          RLED_GPIO_Port
 #define USBD_RX_LED               RLED_Pin

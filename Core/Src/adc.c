@@ -162,7 +162,7 @@ uint16_t get_emfsense(void) {
   return (uint16_t) (((float) ADC_raw[1] / 4095.0) * 3.3 * EMFSENSE_GAIN * 1000);
 };
 
-uint16_t get_isense(void) {
+uint16_t get_csense(void) {
   return (uint16_t) (((float) ADC_raw[2] / 4095.0) * 3.3 * ISENSE_GAIN * 1000);
 };
 /* USER CODE END 1 */

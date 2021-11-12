@@ -51,6 +51,7 @@ uint32_t tim2_calc_frequency(void);
 void tim3_pwm_init(void);
 void tim3_pwm_set_value(uint32_t channel, uint16_t value);
 void tim3_pwm_set_duty(uint32_t channel, uint8_t duty);
+void tim3_pwm_set_freq(uint16_t freq);
 /* USER CODE END Prototypes */
 
 #ifdef __cplusplus

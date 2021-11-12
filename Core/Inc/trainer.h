@@ -18,6 +18,9 @@
 #define CALIB_TOO_LOW                       1
 #define CALIB_OK                            2
 
+#define TRAINER_TASK_UPDATE_MS              10
+#define TRAINER_TASK_UPDATE_FREQ            1000/TRAINER_TASK_UPDATE_MS
+
 typedef enum {
   RESERVED,
   ASLEEP,
@@ -94,3 +97,4 @@ typedef struct {
 
 uint8_t trainer_process_request(uint8_t *request, uint8_t *page);
 uint8_t trainer_generate_page(uint8_t data_page, uint8_t *page);
+void trainer_run(void *argument);

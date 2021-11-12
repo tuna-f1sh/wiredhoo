@@ -24,7 +24,7 @@
 #define IDLE                      0
 #define DONE                      1
 #define F_CLK                     72000000UL
-#define COUNTER_TOP               4294967295
+#define COUNTER_TOP               UINT32_MAX
 
 #define FLYWHEEL_CIR              2300.0f // mm
 #define STEPS_PER_ROTATION        52.0f
@@ -34,15 +34,16 @@
 #define TIMEOUT_OVC_COUNT TIMEOUT_PERIOD / (COUNTER_TOP / F_CLK)
 
 // PWM
-#define PWM_FREQ 400UL
-#define PRESCALER 16
-#define TIMER_PERIOD_COUNT (uint16_t) (F_CLK / (PWM_FREQ * PRESCALER))
+#define PWM_FREQ 1000UL // roughly
+#define TIMER_PRESCALER 4
+#define TIMER_PERIOD_COUNT (uint16_t) (F_CLK / (PWM_FREQ * TIMER_PRESCALER))
 
 volatile static uint8_t sCaptureState = IDLE;
 volatile static uint32_t sTick = 0;
 volatile static uint8_t sHead = 0;
 volatile static uint16_t sTIM2_OVC = 0;
 volatile uint32_t gTicks[2] = {0};
+uint16_t tim3_top = TIMER_PERIOD_COUNT;
 /* USER CODE END 0 */
 
 TIM_HandleTypeDef htim2;
@@ -87,7 +88,7 @@ void MX_TIM3_Init(void)
   TIM_OC_InitTypeDef sConfigOC = {0};
 
   htim3.Instance = TIM3;
-  htim3.Init.Prescaler = 0;
+  htim3.Init.Prescaler = TIMER_PRESCALER;
   htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim3.Init.Period = TIMER_PERIOD_COUNT;
   htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
@@ -307,11 +308,17 @@ void tim3_pwm_set_value(uint32_t channel, uint16_t value) {
 void tim3_pwm_set_duty(uint32_t channel, uint8_t duty) {
   // 100% set compare to larger than period so high all time
   if (duty == 100) {
-    tim3_pwm_set_value(channel, TIMER_PERIOD_COUNT + 1);
+    tim3_pwm_set_value(channel, tim3_top + 1);
   } else {
-    uint16_t count = (uint16_t) (((uint32_t) duty * TIMER_PERIOD_COUNT) / 100);
+    uint16_t count = (uint16_t) (((uint32_t) duty * tim3_top) / 100);
     tim3_pwm_set_value(channel, count);
   }
+}
+
+// used for emulating frequency shift of tim2 counter input
+void tim3_pwm_set_freq(uint16_t freq) {
+  tim3_top = (uint16_t) (F_CLK / (freq * TIMER_PRESCALER));
+  __HAL_TIM_SET_AUTORELOAD(&htim3, tim3_top);
 }
 /* USER CODE END 1 */
 
