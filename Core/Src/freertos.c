@@ -64,6 +64,15 @@ static StaticMessageBuffer_t xAntMsgBufferStruct;
 MessageBufferHandle_t xAntDeviceRxBuffer = NULL;
 static uint8_t xAntDeviceRxStorageBuffer[ANT_EP_OUT_BUFFER_SIZE];
 static StaticMessageBuffer_t xAntDeviceRxBufferStruct;
+// uart tx buffer that will be unloaded by uart task
+MessageBufferHandle_t xUartTxBuffer = NULL;
+static uint8_t xUartTxStorageBuffer[UART_TX_BUFFER_SIZE];
+static StaticMessageBuffer_t xUartTxBufferStruct;
+
+// for task list
+static char taskBuffer[196];
+// for default task to unload xUartTxBuffer to uart perf
+static uint8_t uartBuffer[UART_TX_BUFFER_SIZE];
 
 // timers for emulated master data sending
 TimerHandle_t xAntPowerTimer;
@@ -75,20 +84,18 @@ extern ANT_Device_t fec_device;
 static uint8_t timer_data[8] = {0};
 static uint8_t timer_msg[ANT_MAX_SIZE] = {0};
 
-static char printBuffer[64];
-
 osThreadId_t antProtocolTask;
 const osThreadAttr_t antProtocolTask_attributes = {
-  .name = "antProtocolTask",
-  .priority = (osPriority_t) osPriorityHigh,
-  .stack_size = 128 * 6
+  .name = "antTask",
+  .priority = (osPriority_t) osPriorityAboveNormal,
+  .stack_size = 128 * 8
 };
 
 osThreadId_t trainerTask;
 const osThreadAttr_t trainerTask_attributes = {
   .name = "trainerTask",
   .priority = (osPriority_t) osPriorityHigh,
-  .stack_size = 128 * 4
+  .stack_size = 128 * 8
 };
 
 extern USBD_HandleTypeDef hUsbDeviceFS;
@@ -99,7 +106,7 @@ osThreadId_t defaultTaskHandle;
 const osThreadAttr_t defaultTask_attributes = {
   .name = "defaultTask",
   .priority = (osPriority_t) osPriorityNormal,
-  .stack_size = 128 * 4
+  .stack_size = 128 * 8
 };
 
 /* Private function prototypes -----------------------------------------------*/
@@ -185,6 +192,7 @@ void MX_FREERTOS_Init(void) {
   /* add queues, ... */
   xAntMsgBuffer = xMessageBufferCreateStatic(sizeof(xAntMsgStorageBuffer), xAntMsgStorageBuffer, &xAntMsgBufferStruct);
   xAntDeviceRxBuffer = xMessageBufferCreateStatic(sizeof(xAntDeviceRxStorageBuffer), xAntDeviceRxStorageBuffer, &xAntDeviceRxBufferStruct);
+  xUartTxBuffer = xMessageBufferCreateStatic(sizeof(xUartTxStorageBuffer), xUartTxStorageBuffer, &xUartTxBufferStruct);
   /* USER CODE END RTOS_QUEUES */
 
   /* Create the thread(s) */
@@ -193,6 +201,7 @@ void MX_FREERTOS_Init(void) {
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
+  // TODO - would be nicer to use xTaskCreateStatic rather than heap...
   antProtocolTask = osThreadNew(AntProtocolTask, NULL, &antProtocolTask_attributes);
 
   trainerTask = osThreadNew(trainer_run, NULL, &trainerTask_attributes);
@@ -213,25 +222,51 @@ void MX_FREERTOS_Init(void) {
 /* USER CODE END Header_StartDefaultTask */
 void StartDefaultTask(void *argument)
 {
+  size_t xReceivedBytes;
+  TickType_t last_tick;
+
   /* USER CODE BEGIN StartDefaultTask */
   printf("Default Task Starting\r\n");
+
+  last_tick = xTaskGetTickCount();
+
   /* Infinite loop */
   for(;;)
   {
-    HAL_GPIO_TogglePin(BLINK_LED_PORT, BLINK_LED);
-    // this disables isr so only for debug
-    if (configUSE_STATS_FORMATTING_FUNCTIONS) {
-      printf("Task List\tState\tP\tStack\tNum\r\n");
-      vTaskList(printBuffer);
-      printf(printBuffer);
+    if ((xTaskGetTickCount() - last_tick) >= 1000) {
+      HAL_GPIO_TogglePin(BLINK_LED_PORT, BLINK_LED);
+
+      // this disables isr so only for debug
+      if (configUSE_STATS_FORMATTING_FUNCTIONS) {
+        printf("Task List\tState\tP\tStack\tNum\r\n");
+        vTaskList(taskBuffer);
+        printf(taskBuffer);
+      }
+
+      last_tick = xTaskGetTickCount();
     }
-    osDelay(1000);
+
+    // default task sends UART printf messages to perf
+    xReceivedBytes = xMessageBufferReceive(xUartTxBuffer, (void *) uartBuffer, sizeof(uartBuffer), pdMS_TO_TICKS(1000));
+
+    if (xReceivedBytes > 0) {
+      // write the bytes when the uart is free
+      while (HAL_UART_Transmit(&huart1, uartBuffer, xReceivedBytes, pdMS_TO_TICKS(10)) != HAL_OK) {
+        osDelay(10);
+      }
+    }
   }
   /* USER CODE END StartDefaultTask */
 }
 
 /* Private application code --------------------------------------------------*/
 /* USER CODE BEGIN Application */
+
+// this function is designed to be a async thread safe way to printf - it's buffered and unloaded by defaultTask
+void thread_printf(uint8_t* pBuffer, size_t len, uint8_t block_tick) {
+  xMessageBufferSend(xUartTxBuffer, (uint8_t *) pBuffer, len, block_tick);
+}
+
 void transmit_message(uint8_t *pBuffer, size_t len, uint8_t block_tick) {
   uint8_t status = USBD_BUSY;
   uint8_t block_ticks = 0;
@@ -288,11 +323,13 @@ void AntProtocolTask(void *argument) {
             transmit_message(reply, ANT_MESSAGE_SIZE(reply), 20);
           }
         } else {
-          printf("ANT+ No reply");
+          if (DEBUG_ANT) {
+            printf("ANT+ No reply\r\n");
+          }
         }
       } else {
         if (DEBUG_ANT) {
-          printf("ANT+ Rx Error!");
+          printf("ANT+ Rx Error!\r\n");
         }
       }
     }

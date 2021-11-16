@@ -638,8 +638,8 @@ void ant_generate_data_page(ANT_Device_t *dev, uint8_t *page) {
           page[2] = trainer.cadence;
           page[3] = LOW_BYTE(trainer.accumulated_power); // accumulated power lsb
           page[4] = HIGH_BYTE(trainer.accumulated_power); // accumulated power hsb
-          page[5] = LOW_BYTE(trainer.power); // instananous power lsb
-          page[6] = (HIGH_BYTE(trainer.power) & 0x0F) | (trainer.status.byte << 4); // instananous power hsb 0:3 status 4:7
+          page[5] = LOW_BYTE(trainer.power < 4094 ? trainer.power : 4094); // instananous power lsb
+          page[6] = (HIGH_BYTE(trainer.power < 4094 ? trainer.power : 4094) & 0x0F) | (trainer.status.byte << 4); // instananous power hsb 0:3 status 4:7
           page[7] = (trainer.flag & 0x0F) | (trainer.state << 4);
         }
       }

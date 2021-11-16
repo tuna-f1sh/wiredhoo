@@ -1,4 +1,5 @@
 #include <math.h>
+#include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include "main.h"
@@ -13,19 +14,22 @@
 Trainer_t trainer;
 UserConfig_t user;
 
-uint32_t calculate_flywheel_rps(uint32_t light_freq) {
+// print buffer
+static char print[64];
+
+inline uint32_t calculate_flywheel_rps(uint32_t light_freq) {
   // divide the light gate frequency by the number of segments per revolution for the revolutions per second of the flywheel
   return light_freq / FLYWHEEL_TICKS_REVOLUTION;
 }
 
-float calculate_flywheel_angular_velocity(uint32_t rps) {
+inline float calculate_flywheel_angular_velocity(uint32_t rps) {
   // 2 * pi * rps /60
   return (float) ((float) rps * 2 * M_PI) / 60;
 }
 
-float calculate_system_kinetic_energy(float angular_v) {
-  // 0.5 * I av^2
-  return 0.5 * SYSTEM_INERTIA * (angular_v * angular_v);
+inline float calculate_system_kinetic_energy(float angular_v) {
+  // 0.5 * I av^2 * k_comp
+  return 0.5 * SYSTEM_INERTIA * (angular_v * angular_v) * SYSTEM_INERTIA_COMP_GAIN;
 }
 
 // TODO calculate spindown lookup and emf input
@@ -47,7 +51,8 @@ float calculate_rider_power(float system_ke, uint16_t update_freq) {
   // set for next calculation
   last_rider_ke = rider_ke;
 
-  return power;
+  // return with any defined compensation gain
+  return power * RIDER_POWER_COMP_GAIN;
 }
 
 // TODO spindown routine: do a system power calculation from 36 km/h down to ~0
@@ -68,6 +73,17 @@ float calculate_system_power(float system_ke, uint16_t update_freq) {
   return power;
 }
 
+// returns tick rate of driven _wheel_
+inline uint16_t calculate_driven_rps(uint32_t rps) {
+  return (rps * WHEEL_FLYWHEEL_RATIO_100) / 100;
+}
+
+// returns mm/s
+inline uint16_t calculate_trainer_speed(uint32_t rps) {
+  // return speed of driven _wheel_ and the defined circumference for implied speed
+  return calculate_driven_rps(rps) * trainer.wheel_circumference;
+}
+
 void trainer_init(void) {
   // adc for sense channels
   setup_adc_channels();
@@ -79,22 +95,37 @@ void trainer_init(void) {
   tim3_pwm_init();
   tim3_pwm_set_duty(TIM_CHANNEL_1, 50);
 
+  // setup trainer vars
   memset(&trainer, 0, sizeof(Trainer_t));
   trainer.state = READY;
   /* trainer.status.resistance_calibration = 1; */
-  trainer.wheel_dia = WHEEL_DIAMETER;
-  // invalid for now
-  trainer.speed = 0xFFFF;
+  trainer.wheel_diameter = WHEEL_DIAMETER;
+  trainer.wheel_circumference = (trainer.wheel_diameter * M_PI);
 }
 
 void trainer_run(void *argument) {
+  TickType_t last_tick;
   uint16_t freq = 1000;
+  uint16_t len = 0;
+
+  printf("Trainer Task Starting\r\n");
+
+  // Initialise the xLastWakeTime variable with the current time.
+  last_tick = xTaskGetTickCount();
 
   // initialise the hardware being used and state
   trainer_init();
 
+  if (DEBUG_TRAINER) {
+    len = sprintf(print, "rps,omega,ke,rider_power,speed\r\n");
+    thread_printf((uint8_t*) print, len, 10);
+  }
+
   for(;;)
   {
+    // execute at the update tick
+    vTaskDelayUntil(&last_tick, TRAINER_TASK_UPDATE_MS);
+
     // get revs per second using frequency capture
     gsystem.rps = calculate_flywheel_rps(tim2_calc_frequency());
     // then angular velocity (rad/s) using this
@@ -102,14 +133,41 @@ void trainer_run(void *argument) {
     // and calculate the kinetic energy in system
     gsystem.ke = calculate_system_kinetic_energy(gsystem.omega);
 
-    // TODO speed, elapsed time when IN_USE state, distance, wheel_period
-
     // TODO actual timing not constant
-    trainer.power = calculate_rider_power(gsystem.ke, TRAINER_TASK_UPDATE_FREQ);
+    trainer.power = (uint16_t) calculate_rider_power(gsystem.ke, TRAINER_TASK_UPDATE_FREQ);
 
+    // TODO peak detection (high pass filter power?) for cadence
+
+    // TODO speed, elapsed time when IN_USE state, distance, wheel_period
+    trainer.speed = calculate_trainer_speed(gsystem.rps);
+    trainer.wheel_period = 2048 / calculate_driven_rps(gsystem.rps); // this is the average period of a wheel rev in 1/2048 s - should be average since last update but we'll do that later...
+
+    // elasped is 0.25 s update
+    if (last_tick % 250 == 0) {
+      trainer.elapsed_time += 1;
+
+      // update distance on each second
+      if (trainer.elapsed_time % 4 == 0) {
+        // this will roll over as defined by profile
+        trainer.distance_traveled = trainer.speed * (trainer.elapsed_time / 4); // m/s * s / 4 because time is 0.25 s
+      }
+    }
+
+    // not currently used but get them anyway since it's just a buffered value
     gsystem.vin = get_vsense();
     gsystem.csense = get_csense();
     gsystem.emf = get_emfsense();
+
+    if (DEBUG_TRAINER) {
+      len = sprintf(print, "%u,%u,%u,%d,%d\r\n",
+          (unsigned int) gsystem.rps,
+          (unsigned int) (gsystem.omega * 1000),
+          (unsigned int) (gsystem.ke * 1000),
+          trainer.power,
+          trainer.speed
+      );
+      thread_printf((uint8_t*) print, len, 0);
+    }
 
     if (freq < (1000 * 10)) {
       freq += 100;
@@ -119,8 +177,6 @@ void trainer_run(void *argument) {
 
     tim3_pwm_set_freq(freq);
     tim3_pwm_set_duty(TIM_CHANNEL_1, 50);
-
-    osDelay(TRAINER_TASK_UPDATE_MS);
   }
 }
 
@@ -137,7 +193,7 @@ uint8_t trainer_process_request(uint8_t *request, uint8_t *page) {
         trainer.fsm = SPIN_DOWN;
         ret = 1;
       } else if ((request[1] & ANT_FEC_ZERO_OFFSET_MASK) == ANT_FEC_ZERO_OFFSET_MASK) {
-        // send back now to say it's done since we don't do it
+        // TODO send back now to say it's done since we don't do it
         trainer.calibration_status = 0x00;
         trainer.spin_down_period = 0xFFFF;
         trainer_generate_page(ANT_FEC_CALIBRATION_REQ, page);
@@ -176,10 +232,11 @@ uint8_t trainer_process_request(uint8_t *request, uint8_t *page) {
       break;
 
     case ANT_FEC_DP_USER_CONFIG:
-      user.weight = request[1] | (request[2] << 8); // 0.01 kg 0-655.34 kg
+      user.weight = (request[1] | (request[2] << 8)) * 10; // 0.01 kg 0-655.34 kg * 10 to convert to g
       user.wheel_offset = request[4] & 0x0F; // 1 mm 0 - 10 mm
-      user.bike_weight = (request[4] & 0xF0) | request[5]; // 0.05 kg 0 - 50 kg
-      user.wheel_diameter = request[6]; // 0.01 m 0 - 2.54 m
+      user.bike_weight = (((request[4] & 0xF0) >> 4) | (request[5] << 8)); // 0.05 kg 0 - 50 kg * 20 to convert to g
+      trainer.wheel_diameter = request[6] * 10; // 0.01 m 0 - 2.54 m * 10 to convert to mm
+      trainer.wheel_circumference = (trainer.wheel_diameter * M_PI); // set circumference now too
       user.gear_ratio = request[7]; // 0.03 0.03 - 7.65
       ret = 1;
       break;
@@ -265,10 +322,10 @@ uint8_t trainer_generate_page(uint8_t data_page, uint8_t *page) {
     case ANT_FEC_GENERAL_PAGE:
       page[0] = ANT_FEC_GENERAL_PAGE;
       page[1] = ANT_FEC_TYPE;
-      page[2] = 0x00; // elasped time not used but is required so TODO
-      page[3] = 0x00; // distance not used but same as above
-      page[4] = LOW_BYTE(trainer.speed); // speed lsb
-      page[5] = HIGH_BYTE(trainer.speed); // speed hsb
+      page[2] = trainer.elapsed_time;
+      page[3] = trainer.distance_traveled; // distance not used but same as above
+      page[4] = LOW_BYTE(trainer.speed); // speed lsb (mm/s)
+      page[5] = HIGH_BYTE(trainer.speed); // speed hsb (mm/s)
       page[6] = 0xff; // heart rate
       page[7] = ANT_FEC_GEN_CAPABILITES | (trainer.state << 4);
       break;
@@ -277,7 +334,7 @@ uint8_t trainer_generate_page(uint8_t data_page, uint8_t *page) {
       page[0] = ANT_FEC_GENERAL_SET_PAGE;
       page[1] = 0xff;
       page[2] = 0xff;
-      page[3] = (uint8_t) (trainer.wheel_dia * M_PI); // cycle length is wheel circumference
+      page[3] = (uint8_t) (trainer.wheel_circumference / 10); // cycle length is wheel circumference in 0.01 m
       page[4] = LOW_BYTE(trainer.grade);
       page[5] = HIGH_BYTE(trainer.grade);
       page[6] = trainer.resistance;
@@ -299,14 +356,13 @@ uint8_t trainer_generate_page(uint8_t data_page, uint8_t *page) {
       // this is currently not sent...
     case ANT_FEC_TRAINER_TORQUE_PAGE:
       trainer.accumulated_torque += trainer.torque;
-      trainer.accumulated_wheel += trainer.speed; // TODO this is wheel period not speed; needs calculating
       trainer.accumulated_torque_counter++;
 
       page[0] = ANT_FEC_TRAINER_TORQUE_PAGE;
       page[1] = ++trainer.accumulated_torque_counter;
       page[2] = 0x00; // TODO: wheel ticks field increments with each wheel revolution and is used to calculate linear distance traveled
-      page[3] = LOW_BYTE(trainer.accumulated_wheel);
-      page[4] = HIGH_BYTE(trainer.accumulated_wheel);
+      page[3] = LOW_BYTE(trainer.wheel_period);
+      page[4] = HIGH_BYTE(trainer.wheel_period);
       page[5] = LOW_BYTE(trainer.accumulated_torque);
       page[6] = HIGH_BYTE(trainer.accumulated_torque);
       page[7] = trainer.state << 4;

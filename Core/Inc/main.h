@@ -59,6 +59,7 @@ extern system_t gsystem;
 
 /* Exported functions prototypes ---------------------------------------------*/
 void Error_Handler(void);
+void thread_printf(uint8_t* pBuffer, size_t len, uint8_t block_tick);
 
 /* USER CODE BEGIN EFP */
 
@@ -79,8 +80,9 @@ void Error_Handler(void);
 #define BLED_GPIO_Port GPIOB
 /* USER CODE BEGIN Private defines */
 #define DEBUG                     1
-#define DEBUG_ANT                 DEBUG && 1
+#define DEBUG_ANT                 DEBUG && 0 // send ant data to uart
 #define DEBUG_CH_TX_EVENT         DEBUG && 0
+#define DEBUG_TRAINER             DEBUG && 1 // send csv stream to uart
 // PA5 is timer counter input (light gate sense) A1 on Feather
 // PA6 is PWM output (emf MOSFET) A2 on Feather
 
@@ -91,9 +93,11 @@ void Error_Handler(void);
 #define ANT_CONTROL_LED_PORT      GLED_GPIO_Port
 #define ANT_CONTROL_LED           GLED_Pin
 
-#define VSENSE_GAIN               1.0f
-#define ISENSE_GAIN               1.0f
-#define EMFSENSE_GAIN             1.0f
+#define VSENSE_GAIN               10.0f // potential divider for VIN measurement
+#define ISENSE_GAIN               1.0f // current sense gain
+#define EMFSENSE_GAIN             1.0f // potential divider for EMF sense
+
+#define UART_TX_BUFFER_SIZE       256 // this is the buffered uart queue used by thread_printf
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus

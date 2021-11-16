@@ -5,9 +5,6 @@ void print_hex(char *string, size_t len) {
   unsigned char *p = (unsigned char *) string;
 
   for (int i = 0; i < len; i++) {
-    /* if (! (i % 16) && i) */
-    /*   printf("\r\n"); */
-
     printf("0x%02x ", p[i]);
   }
 
