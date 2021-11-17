@@ -18,31 +18,29 @@
   */
 
 /* Includes ------------------------------------------------------------------*/
+#include "main.h"
 #include "tim.h"
 
 /* USER CODE BEGIN 0 */
+#define F_CLK                     72000000UL
+
+// FREQ COUNTER TIM
 #define IDLE                      0
 #define DONE                      1
-#define F_CLK                     72000000UL
-#define COUNTER_TOP               UINT32_MAX
+#define COUNTER_TOP               UINT16_MAX
 
-#define FLYWHEEL_CIR              2300.0f // mm
-#define STEPS_PER_ROTATION        52.0f
-
-#define MM_PER_STEP (FLYWHEEL_CIR / STEPS_PER_ROTATION) // mm
 #define TIMEOUT_PERIOD            500 // ms
-#define TIMEOUT_OVC_COUNT TIMEOUT_PERIOD / (COUNTER_TOP / F_CLK)
+#define TIMEOUT_OVC_COUNT         ((TIMEOUT_PERIOD * F_CLK) / 1000) / COUNTER_TOP
 
-// PWM
+// PWM TIM
 #define PWM_FREQ 1000UL // roughly
 #define TIMER_PRESCALER 4
 #define TIMER_PERIOD_COUNT (uint16_t) (F_CLK / (PWM_FREQ * TIMER_PRESCALER))
 
 volatile static uint8_t sCaptureState = IDLE;
 volatile static uint32_t sTick = 0;
-volatile static uint8_t sHead = 0;
-volatile static uint16_t sTIM2_OVC = 0;
-volatile uint32_t gTicks[2] = {0};
+volatile static uint32_t sTIM2_OVC = 0;
+volatile uint32_t sTicks = 0;
 uint16_t tim3_top = TIMER_PERIOD_COUNT;
 /* USER CODE END 0 */
 
@@ -52,16 +50,22 @@ TIM_HandleTypeDef htim3;
 /* TIM2 init function */
 void MX_TIM2_Init(void)
 {
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
   TIM_MasterConfigTypeDef sMasterConfig = {0};
   TIM_IC_InitTypeDef sConfigIC = {0};
 
   htim2.Instance = TIM2;
   htim2.Init.Prescaler = 0;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 4294967295;
+  htim2.Init.Period = COUNTER_TOP;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
   if (HAL_TIM_IC_Init(&htim2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK)
   {
     Error_Handler();
   }
@@ -71,10 +75,10 @@ void MX_TIM2_Init(void)
   {
     Error_Handler();
   }
-  sConfigIC.ICPolarity = TIM_INPUTCHANNELPOLARITY_RISING;
+  sConfigIC.ICPolarity = TIM_INPUTCHANNELPOLARITY_FALLING;
   sConfigIC.ICSelection = TIM_ICSELECTION_DIRECTTI;
   sConfigIC.ICPrescaler = TIM_ICPSC_DIV1;
-  sConfigIC.ICFilter = 0;
+  sConfigIC.ICFilter = 1 << 4; // fSAMPLING=fDTS/8, N=6
   if (HAL_TIM_IC_ConfigChannel(&htim2, &sConfigIC, TIM_CHANNEL_1) != HAL_OK)
   {
     Error_Handler();
@@ -237,48 +241,40 @@ void tim2_capture_setup(void) {
   HAL_TIM_IC_Start_IT(&htim2, TIM_CHANNEL_1);
 }
 
-static inline float ticks_to_speed(uint32_t ticks) {
-  return MM_PER_STEP / ((float) ticks / F_CLK);
-}
-
-// returns speed in km/h
-uint32_t tim2_calc_speed(void) {
-  uint32_t ret = 0;
-
-  // if there is a sample, otherwise will return 0
-  if (gTicks[!sHead] != 0) {
-    ret = (uint32_t) (ticks_to_speed(gTicks[!sHead]) * 3.6);
-  }
-
-  return ret;
-}
-
 uint32_t tim2_calc_frequency(void) {
   uint32_t ret = 0;
 
   // clock of TIM2 divided by the count in one cycle
-  if (gTicks[!sHead] != 0) {
-    ret = F_CLK / gTicks[!sHead];
+  xSemaphoreTake(xTim2Semaphore, 5);
+  if (sTicks != 0) {
+    ret = F_CLK / sTicks;
   }
+  xSemaphoreGive(xTim2Semaphore);
 
   return ret;
 }
 
 void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef* htim) {
   if (htim->Instance == TIM2) {
+
     // first sample
     if(sCaptureState == IDLE) {
+
       sTick = TIM2->CCR1;
       sTIM2_OVC = 0;
       sCaptureState = DONE;
+
     // after first, T1 updates during calculation
     } else if(sCaptureState == DONE) {
-      // calculate period in ticks since last T1 using current count value as T2
-      gTicks[sHead] = (TIM2->CCR1 + (sTIM2_OVC * COUNTER_TOP)) - sTick;
+
+      if (xSemaphoreTakeFromISR(xTim2Semaphore, NULL) == pdTRUE) {
+        // calculate period in ticks since last T1 using current count value as T2
+        sTicks = (TIM2->CCR1 + (sTIM2_OVC * COUNTER_TOP)) - sTick;
+        xSemaphoreGiveFromISR(xTim2Semaphore, NULL);
+      }
+
       // set new T1 to current count for next edge
       sTick = TIM2->CCR1;
-      // switch double buffer
-      sHead = !sHead;
       // reset over counter
       sTIM2_OVC = 0;
     }
@@ -286,13 +282,21 @@ void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef* htim) {
 }
 
 void tim2_period_elapsed_callback(void) {
+  // if not reached overcount count inc
   if (sTIM2_OVC < TIMEOUT_OVC_COUNT) {
     sTIM2_OVC++;
+
+  // else, timeout so set freq to zero
   } else {
-    // clear buffer speed will read from
-    gTicks[!sHead] = 0;
-    // reset state for new measurement
-    sCaptureState = IDLE;
+
+    if (xSemaphoreTakeFromISR(xTim2Semaphore, NULL) == pdTRUE) {
+      // clear tick count will read from
+      sTicks = 0;
+
+      // reset state for new measurement
+      sCaptureState = IDLE;
+    }
+
   }
 }
 
@@ -315,7 +319,6 @@ void tim3_pwm_set_duty(uint32_t channel, uint8_t duty) {
   }
 }
 
-// used for emulating frequency shift of tim2 counter input
 void tim3_pwm_set_freq(uint16_t freq) {
   tim3_top = (uint16_t) (F_CLK / (freq * TIMER_PRESCALER));
   __HAL_TIM_SET_AUTORELOAD(&htim3, tim3_top);

@@ -159,10 +159,10 @@ void trainer_run(void *argument) {
     gsystem.emf = get_emfsense();
 
     if (DEBUG_TRAINER) {
-      len = sprintf(print, "%u,%u,%u,%d,%d\r\n",
-          (unsigned int) gsystem.rps,
-          (unsigned int) (gsystem.omega * 1000),
-          (unsigned int) (gsystem.ke * 1000),
+      len = sprintf(print, "%lu,%lu,%lu,%d,%d\r\n",
+          (long unsigned int) gsystem.rps,
+          (long unsigned int) (gsystem.omega * 1000),
+          (long unsigned int) (gsystem.ke * 1000),
           trainer.power,
           trainer.speed
       );

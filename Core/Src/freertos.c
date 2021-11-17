@@ -29,6 +29,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "message_buffer.h"
+#include "semphr.h"
 #include "timers.h"
 #include "usart.h"
 #include "usbd_vendor.h"
@@ -68,6 +69,11 @@ static StaticMessageBuffer_t xAntDeviceRxBufferStruct;
 MessageBufferHandle_t xUartTxBuffer = NULL;
 static uint8_t xUartTxStorageBuffer[UART_TX_BUFFER_SIZE];
 static StaticMessageBuffer_t xUartTxBufferStruct;
+
+// semaphore to get freq tick
+SemaphoreHandle_t xTim2Semaphore = NULL;
+StaticSemaphore_t xTim2SemaphoreBuffer;
+
 
 // for task list
 static char taskBuffer[196];
@@ -180,6 +186,7 @@ void MX_FREERTOS_Init(void) {
 
   /* USER CODE BEGIN RTOS_SEMAPHORES */
   /* add semaphores, ... */
+  xTim2Semaphore = xSemaphoreCreateBinaryStatic( &xTim2SemaphoreBuffer );
   /* USER CODE END RTOS_SEMAPHORES */
 
   /* USER CODE BEGIN RTOS_TIMERS */

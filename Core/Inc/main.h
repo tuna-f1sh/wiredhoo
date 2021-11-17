@@ -28,7 +28,12 @@ extern "C" {
 #endif
 
 /* Includes ------------------------------------------------------------------*/
+#include <stdbool.h>
 #include "stm32f4xx_hal.h"
+
+#include "FreeRTOS.h"
+#include "message_buffer.h"
+#include "semphr.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -50,6 +55,8 @@ typedef struct {
 /* Exported constants --------------------------------------------------------*/
 /* USER CODE BEGIN EC */
 extern system_t gsystem;
+// semaphore to get freq tick
+extern SemaphoreHandle_t xTim2Semaphore;
 /* USER CODE END EC */
 
 /* Exported macro ------------------------------------------------------------*/
