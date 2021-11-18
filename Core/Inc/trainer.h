@@ -9,10 +9,10 @@
 #define ANT_FEC_CAPABILITES                 (ANT_FEC_BASIC_RESISTANCE << 0) | (ANT_FEC_TARGET_POWER << 1) | (ANT_FEC_SIMULATION << 2)
 
 #define SPIN_DOWN_TARGET_SPEED              10000U // 0.001 m/s (mm/s)
-#define WHEEL_DIAMETER                      670 // 0.001 m (mm) defaul wheel diameter (used in ANT+ profile)
-#define WHEEL_FLYWHEEL_RATIO_100            10 // ratio between flywheel and the belt driven _wheel_ (0.01)
+#define WHEEL_DIAMETER                      670 // 0.001 m (mm) default wheel diameter (used in ANT+ profile)
+#define WHEEL_FLYWHEEL_RATIO_100            10 // ratio between flywheel and the belt driven _wheel_ for speed infer (0.01)
 #define FLYWHEEL_TICKS_REVOLUTION           1 // the number of transistions per rev of light gate
-#define SYSTEM_INERTIA                      0.024664f // the inertia in the system (calculated based on Kickr V4 first principle measurements)
+#define SYSTEM_INERTIA                      0.024664f // the inertia in the system (calculated based on Kickr V4 first principle measurements) (km/m^2)
 
 #define CALIB_NA                            0
 #define CALIB_TOO_LOW                       1

@@ -294,13 +294,11 @@ void AntProtocolTask(void *argument) {
     uint8_t reply[ANT_MAX_SIZE] = {0};
     uint8_t ucRxData[64];
     size_t xReceivedBytes;
-    // the block time needs to be faster than emulated devices are loading up transmit buffer
-    const TickType_t xBlockTime = pdMS_TO_TICKS(5);
+    // the block time needs to be faster than emulated devices are loading up transmit buffer - checked at end
+    const TickType_t xBlockTime = pdMS_TO_TICKS(10);
     ANT_MessageStatus_t status = 0;
 
-    /* Receive the next message from the message buffer.  Wait in the Blocked
-       state (so not using any CPU processing time) for a maximum of 100ms for
-       a message to become available. */
+    // wait for received data - controls tick rate
     xReceivedBytes = xMessageBufferReceive(xAntMsgBuffer, (void *) ucRxData, sizeof(ucRxData), xBlockTime);
     // clear after block allows blink on rx
     HAL_GPIO_WritePin(USBD_RX_LED_PORT, USBD_RX_LED, 1);

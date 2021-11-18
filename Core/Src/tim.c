@@ -27,10 +27,13 @@
 // FREQ COUNTER TIM
 #define IDLE                      0
 #define DONE                      1
-#define COUNTER_TOP               UINT16_MAX
+#define IC_DIV                    4
+#define IC_FREQ                   F_CLK/IC_DIV // 18 MHz - only sampling a low frequency signal
+#define IC_COUNTER_TOP            UINT16_MAX
 
-#define TIMEOUT_PERIOD            500 // ms
-#define TIMEOUT_OVC_COUNT         ((TIMEOUT_PERIOD * F_CLK) / 1000) / COUNTER_TOP
+#define TIMEOUT_PERIOD            5000 // ms
+#define TIMEOUT_OVC_COUNT         ((TIMEOUT_PERIOD * IC_FREQ) / 1000) / IC_COUNTER_TOP
+#define TIMEOUT_OVC_COUNT         500
 
 // PWM TIM
 #define PWM_FREQ 1000UL // roughly
@@ -40,7 +43,7 @@
 volatile static uint8_t sCaptureState = IDLE;
 volatile static uint32_t sTick = 0;
 volatile static uint32_t sTIM2_OVC = 0;
-volatile uint32_t sTicks = 0;
+volatile static uint32_t sTicks = 0;
 uint16_t tim3_top = TIMER_PERIOD_COUNT;
 /* USER CODE END 0 */
 
@@ -55,9 +58,9 @@ void MX_TIM2_Init(void)
   TIM_IC_InitTypeDef sConfigIC = {0};
 
   htim2.Instance = TIM2;
-  htim2.Init.Prescaler = 0;
+  htim2.Init.Prescaler = IC_DIV;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = COUNTER_TOP;
+  htim2.Init.Period = IC_COUNTER_TOP;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
   if (HAL_TIM_IC_Init(&htim2) != HAL_OK)
@@ -75,10 +78,16 @@ void MX_TIM2_Init(void)
   {
     Error_Handler();
   }
+  // Capture filtering. Will need changing on full encoder trainers. Kickr with 1 per rev I found was picking up noise. See https://www.st.com/content/ccc/resource/technical/document/application_note/group0/91/01/84/3f/7c/67/41/3f/DM00236305/files/DM00236305.pdf/jcr:content/translations/en.DM00236305.pdf 1.4
   sConfigIC.ICPolarity = TIM_INPUTCHANNELPOLARITY_FALLING;
   sConfigIC.ICSelection = TIM_ICSELECTION_DIRECTTI;
-  sConfigIC.ICPrescaler = TIM_ICPSC_DIV1;
-  sConfigIC.ICFilter = 1 << 4; // fSAMPLING=fDTS/8, N=6
+  // dicates sampling frequency of filter F_dts = F_clk [IC_FREQ] / pre
+  sConfigIC.ICPrescaler = TIM_ICPSC_DIV2;
+  /* sConfigIC.ICFilter = 0b1000; // fSAMPLING=fDTS/8, N=6 18/2/8 = 1.1 MHz, 6 samples = 187.5 kHz max signal */
+  // max
+  sConfigIC.ICFilter = 0b1111; // fSAMPLING=fDTS/32, N=8 18/2/32 = 281 kHz, 8 samples = 35 kHz max signal
+  // off
+  /* sConfigIC.ICFilter = 0; */
   if (HAL_TIM_IC_ConfigChannel(&htim2, &sConfigIC, TIM_CHANNEL_1) != HAL_OK)
   {
     Error_Handler();
@@ -247,7 +256,7 @@ uint32_t tim2_calc_frequency(void) {
   // clock of TIM2 divided by the count in one cycle
   xSemaphoreTake(xTim2Semaphore, 5);
   if (sTicks != 0) {
-    ret = F_CLK / sTicks;
+    ret = IC_FREQ / sTicks;
   }
   xSemaphoreGive(xTim2Semaphore);
 
@@ -269,7 +278,7 @@ void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef* htim) {
 
       if (xSemaphoreTakeFromISR(xTim2Semaphore, NULL) == pdTRUE) {
         // calculate period in ticks since last T1 using current count value as T2
-        sTicks = (TIM2->CCR1 + (sTIM2_OVC * COUNTER_TOP)) - sTick;
+        sTicks = (TIM2->CCR1 + (sTIM2_OVC * (IC_COUNTER_TOP + 1))) - sTick;
         xSemaphoreGiveFromISR(xTim2Semaphore, NULL);
       }
 

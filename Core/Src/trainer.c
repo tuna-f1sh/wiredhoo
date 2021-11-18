@@ -15,7 +15,7 @@ Trainer_t trainer;
 UserConfig_t user;
 
 // print buffer
-static char print[64];
+static char sPrint[64];
 
 inline uint32_t calculate_flywheel_rps(uint32_t light_freq) {
   // divide the light gate frequency by the number of segments per revolution for the revolutions per second of the flywheel
@@ -23,65 +23,40 @@ inline uint32_t calculate_flywheel_rps(uint32_t light_freq) {
 }
 
 inline float calculate_flywheel_angular_velocity(uint32_t rps) {
-  // 2 * pi * rps /60
-  return (float) ((float) rps * 2 * M_PI) / 60;
+  // 2 * pi * rps = rad/s
+  return (float) rps * 2 * M_PI;
 }
 
 inline float calculate_system_kinetic_energy(float angular_v) {
-  // 0.5 * I av^2 * k_comp
+  // 0.5 * I omega^2 * k_comp
   return 0.5 * SYSTEM_INERTIA * (angular_v * angular_v) * SYSTEM_INERTIA_COMP_GAIN;
 }
 
 // TODO calculate spindown lookup and emf input
-float calculate_rider_power(float system_ke, uint16_t update_freq) {
-  static float last_rider_ke;
-  float rider_ke;
-  float delta_ke;
+float calculate_rider_power(float delta_ke, uint16_t update_freq) {
+  float rider_input_ke;
   float power;
 
-  // use kinetic energy in system and take away known losses to get rider input
-  rider_ke = gsystem.ke /* - spindown lookup - emf control */;
+  // calculate rider input energy based on change in ke and known losses
+  // change is calculated plus spin down curve losses because energy must be input if spinning (with or without change in speed)
+  rider_input_ke = delta_ke /*- spindown delta at speed - emf*/;
 
-  // calculate change since last sample
-  delta_ke = rider_ke - last_rider_ke;
-
-  // power is the change in ke with respect to time (tick rate of task); change in energy with time
-  power = delta_ke * update_freq;
-
-  // set for next calculation
-  last_rider_ke = rider_ke;
+  // power is the change in ke with respect to time (tick rate of task)
+  power = rider_input_ke * update_freq;
 
   // return with any defined compensation gain
   return power * RIDER_POWER_COMP_GAIN;
 }
 
 // TODO spindown routine: do a system power calculation from 36 km/h down to ~0
-float calculate_system_power(float system_ke, uint16_t update_freq) {
-  static float last_ke;
-  float delta_ke;
-  float power;
-
-  // calculate change since last sample
-  delta_ke = system_ke - last_ke;
-
-  // power is the change in ke with respect to time (tick rate of task); change in energy with time
-  power = delta_ke * update_freq;
-
-  // set for next calculation
-  last_ke = system_ke;
-
-  return power;
-}
-
-// returns tick rate of driven _wheel_
-inline uint16_t calculate_driven_rps(uint32_t rps) {
-  return (rps * WHEEL_FLYWHEEL_RATIO_100) / 100;
+float calculate_system_power(float delta_ke, uint16_t update_freq) {
+  return delta_ke * update_freq;
 }
 
 // returns mm/s
 inline uint16_t calculate_trainer_speed(uint32_t rps) {
-  // return speed of driven _wheel_ and the defined circumference for implied speed
-  return calculate_driven_rps(rps) * trainer.wheel_circumference;
+  // return speed of driven _wheel_ and the defined circumference for infered speed
+  return (rps * WHEEL_FLYWHEEL_RATIO_100 * trainer.wheel_circumference) / 100;
 }
 
 void trainer_init(void) {
@@ -117,8 +92,8 @@ void trainer_run(void *argument) {
   trainer_init();
 
   if (DEBUG_TRAINER) {
-    len = sprintf(print, "rps,omega,ke,rider_power,speed\r\n");
-    thread_printf((uint8_t*) print, len, 10);
+    len = sprintf(sPrint, "rps,omega,ke,rider_power,speed\r\n");
+    thread_printf((uint8_t*) sPrint, len, 10);
   }
 
   for(;;)
@@ -130,17 +105,19 @@ void trainer_run(void *argument) {
     gsystem.rps = calculate_flywheel_rps(tim2_calc_frequency());
     // then angular velocity (rad/s) using this
     gsystem.omega = calculate_flywheel_angular_velocity(gsystem.rps);
-    // and calculate the kinetic energy in system
+    // and calculate the kinetic energy in system, change and set last
+    gsystem._ke = gsystem.ke;
     gsystem.ke = calculate_system_kinetic_energy(gsystem.omega);
+    gsystem.delta_ke = gsystem.ke - gsystem._ke;
 
     // TODO actual timing not constant
-    trainer.power = (uint16_t) calculate_rider_power(gsystem.ke, TRAINER_TASK_UPDATE_FREQ);
+    trainer.power = (uint16_t) calculate_rider_power(gsystem.delta_ke, TRAINER_TASK_UPDATE_FREQ);
 
     // TODO peak detection (high pass filter power?) for cadence
 
     // TODO speed, elapsed time when IN_USE state, distance, wheel_period
     trainer.speed = calculate_trainer_speed(gsystem.rps);
-    trainer.wheel_period = 2048 / calculate_driven_rps(gsystem.rps); // this is the average period of a wheel rev in 1/2048 s - should be average since last update but we'll do that later...
+    trainer.wheel_period = 2048 * 100 / gsystem.rps * WHEEL_FLYWHEEL_RATIO_100; // this is the average period of a wheel rev in 1/2048 s - should be average since last update but we'll do that later...
 
     // elasped is 0.25 s update
     if (last_tick % 250 == 0) {
@@ -149,7 +126,7 @@ void trainer_run(void *argument) {
       // update distance on each second
       if (trainer.elapsed_time % 4 == 0) {
         // this will roll over as defined by profile
-        trainer.distance_traveled = trainer.speed * (trainer.elapsed_time / 4); // m/s * s / 4 because time is 0.25 s
+        trainer.distance_traveled = trainer.speed * trainer.elapsed_time / 4000; // m/s * s / 4 because time is 0.25 s
       }
     }
 
@@ -159,14 +136,14 @@ void trainer_run(void *argument) {
     gsystem.emf = get_emfsense();
 
     if (DEBUG_TRAINER) {
-      len = sprintf(print, "%lu,%lu,%lu,%d,%d\r\n",
+      len = sprintf(sPrint, "%lu,%lu,%lu,%d,%d\r\n",
           (long unsigned int) gsystem.rps,
           (long unsigned int) (gsystem.omega * 1000),
           (long unsigned int) (gsystem.ke * 1000),
           trainer.power,
           trainer.speed
       );
-      thread_printf((uint8_t*) print, len, 0);
+      thread_printf((uint8_t*) sPrint, len, 0);
     }
 
     if (freq < (1000 * 10)) {
