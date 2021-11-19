@@ -20,7 +20,7 @@ def third_order(x, a, b, c, d):
 def diff_third_order(dt, a, b, c):
     return a + (b *  dt) + (2 * c * dt)
 
-def pre_process_spindown(spindown: pd.DataFrame, exit_rps: int = 16, sample_period=100e-3):
+def pre_process_spindown(spindown: pd.DataFrame, exit_rps: int = 16, update_freq=10):
     # remove zeros
     ret = spindown.loc[~(spindown==0).all(axis=1)]
 
@@ -45,7 +45,7 @@ def pre_process_spindown(spindown: pd.DataFrame, exit_rps: int = 16, sample_peri
     ret = ret[ret.ke_delta < 0.0]
 
     # since we've dropped points, put an elapsed so we can keep with respect to time
-    ret["elapsed"] = (ret.index - maxi) * sample_period
+    ret["elapsed"] = (ret.index - maxi) / update_freq
 
     return ret
 
@@ -67,13 +67,17 @@ def generate_spindown_fit(spindown: pd.DataFrame):
     ke_delta_terms, _ = curve_fit(third_order, spindown["elapsed"], spindown["ke_delta"])
     fitted_delta = third_order(spindown["elapsed"], ke_delta_terms[0], ke_delta_terms[1], ke_delta_terms[2], ke_delta_terms[3])
 
-    spindown_terms, _ = curve_fit(third_order, fitted_speed, diff_ke)
-    # spindown_terms, _ = curve_fit(third_order, fitted_speed, fitted_delta)
+    # spindown_terms, _ = curve_fit(third_order, fitted_speed, diff_ke) # using differential
+    spindown_terms, _ = curve_fit(third_order, fitted_speed, fitted_delta) # using delta
     spindown_curve = third_order(spindown["rps"], spindown_terms[0], spindown_terms[1], spindown_terms[2], spindown_terms[3])
 
     return spindown_terms, spindown_curve
 
 def post_process_run(run: pd.DataFrame, spindown_terms, update_freq=10, system_i=0.024664):
+
+    def moving_average(x, w):
+        return np.convolve(x, np.ones(w), 'valid') / w
+
     # ret = run.loc[~(run==0).all(axis=1)]
     ret = run
     # ret = ret[ret.rps.diff() != 0]
@@ -89,8 +93,19 @@ def post_process_run(run: pd.DataFrame, spindown_terms, update_freq=10, system_i
     ret["ke_delta"] = ret["ke"].diff()
 
     ret["elapsed"] = ret.index * 1/update_freq
+
+    ret["power_static"] = -1 * (third_order(ret["rps"], spindown_terms[0], spindown_terms[1], spindown_terms[2], spindown_terms[3]) / ret["elapsed"].diff()) # using delta
+    # ret["power_static"] = -1 * (third_order(ret["rps"], spindown_terms[0], spindown_terms[1], spindown_terms[2], spindown_terms[3])) # using differtial
+    ret["power_acceleration"] = (ret["ke_delta"] / ret["elapsed"].diff()) 
+
+    filtered_ps = moving_average(ret["power_static"], 10)
+    filtered_pa = moving_average(ret["power_acceleration"], 20)
+    # match others after filter
+    ret = ret[:len(filtered_pa)]
+    filtered_ps = filtered_ps[:len(filtered_pa)]
+
     # rider power is change in energy due to speed - known losses fround with spindown wrt
-    ret["rider_power"] = (ret["ke_delta"] / ret["elapsed"].diff()) - (third_order(ret["rps"], spindown_terms[0], spindown_terms[1], spindown_terms[2], spindown_terms[3]))# / ret["elapsed"].diff())
+    ret["rider_power"] = filtered_ps + filtered_pa
 
     return ret
 
@@ -111,27 +126,27 @@ def trainer_speed(rps: int, flywheel_ratio: int, wheel_circumference: int):
     return int((rps * flywheel_ratio * wheel_circumference) / 100)
 
 spindown = read_stream('ref/spindown_b1111_3_zwift.csv')
-sd = pre_process_spindown(spindown)
+sd = pre_process_spindown(spindown, update_freq=10)
 sd_terms, sd_curve = generate_spindown_fit(sd)
 
 race = read_stream('ref/zwift_race.csv')
-pr = post_process_run(race, sd_terms)
+pr = post_process_run(race, sd_terms, update_freq=10)
 
 # raw plot
-fig = px.line(spindown, y="rps", labels={"rps":"revs per second"}, title="kickr spindown light transistor sampling")
-fig.show()
+# fig = px.line(spindown, y="rps", labels={"rps":"revs per second"}, title="kickr spindown light transistor sampling")
+# fig.show()
 
 # plot decay
-fig = px.line(sd, y="ke", x="elapsed", labels={"ke_delta":"change in ke"}, title="kickr spindown kinetic energy decay")
-fig.show()
+# fig = px.line(sd, y="ke", x="elapsed", labels={"ke_delta":"change in ke"}, title="kickr spindown kinetic energy decay")
+# fig.show()
 
 # spindown curve
 # fig = px.line(y=sd["ke_delta"] * -1, x=sd_curve * -1, title="kickr spindown fitted rps and change in ke")
 # fig.show()
-fake_rps = np.arange(0,50,1)
-ke_loss = third_order(fake_rps, sd_terms[0], sd_terms[1], sd_terms[2], sd_terms[3])
-fig = px.line(y=ke_loss, x=fake_rps, labels={"y":"change in ke"}, title="kickr spindown fitted rps and change in ke for energy loss at given rps")
-fig.show()
+# fake_rps = np.arange(0,50,1)
+# ke_loss = third_order(fake_rps, sd_terms[0], sd_terms[1], sd_terms[2], sd_terms[3])
+# fig = px.line(y=ke_loss, x=fake_rps, labels={"y":"change in ke"}, title="kickr spindown fitted rps and change in ke for energy loss at given rps")
+# fig.show()
 
 fig = px.line(pr, y=['rider_power', 'rps'], x='elapsed', title="kickr light transistor sampling power inference with spindown comp Zwift race")
 fig.show()
