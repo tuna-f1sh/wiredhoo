@@ -6,17 +6,19 @@ Fed up with wireless connectivity issues, I decided to come up with a solution. 
 
 Broader scope for this project is to become an open-source firmware alternative for inertial trainers.
 
+The project is very much a work in progress and not top of my priority - I'm open to collaboration. See the GitHub discussions board for upto date progress.
+
 ## TODO - See GitHub discussions
 
  - [x] Create ANT USB device.
 - [x] Emulate ANT control.
 - [x] Emulate ANT+ power meter and fitness control profiles.
-- [ ] CI tests for the above.
-- [ ] Light sensor speed reading: TIM counter input capture, I’ve got most of this just need to test.
-- [ ] Moment of inertia based power measurement: based on work done by Budget trainer build
+- [x] CI tests for the above - more as develop.
+- [x] Light sensor speed reading: TIM counter input capture, I’ve got most of this just need to test.
+- [x] Moment of inertia based power measurement: based on work done by Budget trainer build
 - [ ] Back EMF resistance control: PID controller based on measured power to setpoint error.
-- [ ] Spin-down routine: linear lookup table.
-- [ ] ADC sampling: vsense, emf sense - the ADC is initialised but thinking DMA circular buffer.
+- [ ] Spin-down routine: fit curve of energy loss with rps.
+- [x] ADC sampling: vsense, emf sense - the ADC is initialised but thinking DMA circular buffer.
 - [ ] LED routines 💄: basic but also thinking WS2812B for power level indication.
 
 # Build
@@ -33,3 +35,11 @@ make # compile with debug flags
 make upload # upload to board via SWD
 make attach # attach for GDB debug
 ```
+
+# Porting
+
+I started this project around the Wahoo Kick V4. It should be possible to port this to any moment of inertia based trainer (or otherwise for that matter):
+
+* trainer.h has many defines specific to the trainer: inertia of system, dimensions etc. If you want to develop for another trainer, I suggest we break these into trainer specific header files.
+* The timer counter capture (tim.c/.h) setup might require changing depending on the expected frequency of the flywheel speed measurement.
+* Inevitably other bits to be added here.

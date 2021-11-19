@@ -6,6 +6,10 @@ name = "pypi"
 [packages]
 pytest = "*"
 openant = {editable = true, ref = "master", git = "https://github.com/tuna-f1sh/openant"}
+plotly = "*"
+ipython = "*"
+pandas = "*"
+scipy = "*"
 
 [dev-packages]
 pytest-timeout = "*"
