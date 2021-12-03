@@ -50,7 +50,7 @@ def calculate_kick_moment_inertia(flywheel_r, flywheel_h, inner_h, inner_r, wall
 
     return disc_i + thin_wall_i + inner_i
 
-print(f"Kickr V4 moment inertia {calculate_kick_moment_inertia(flywheel_r=100e-3, flywheel_h=70.5e-3, inner_h=64.5e-3, inner_r=30e-3, wall_thickness=14.8e-3, axle_r=7e-3):.6} kg/m2")
+print(f"Kickr 2017 moment inertia {calculate_kick_moment_inertia(flywheel_r=100e-3, flywheel_h=70.5e-3, inner_h=64.5e-3, inner_r=30e-3, wall_thickness=14.8e-3, axle_r=7e-3):.6} kg/m2")
 
 # This was initial testing
 def test_usb():

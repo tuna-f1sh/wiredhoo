@@ -12,7 +12,7 @@
 #define WHEEL_DIAMETER                      670 // 0.001 m (mm) default wheel diameter (used in ANT+ profile)
 #define WHEEL_FLYWHEEL_RATIO_100            10 // ratio between flywheel and the belt driven _wheel_ for speed infer (0.01)
 #define FLYWHEEL_TICKS_REVOLUTION           1 // the number of transistions per rev of light gate
-#define SYSTEM_INERTIA                      0.024664f // the inertia in the system (calculated based on Kickr V4 first principle measurements) (km/m^2)
+#define SYSTEM_INERTIA                      0.024664f // the inertia in the system (calculated based on Kickr 2017 first principle measurements) (km/m^2)
 
 #define CALIB_NA                            0
 #define CALIB_TOO_LOW                       1
@@ -20,6 +20,12 @@
 
 #define TRAINER_TASK_UPDATE_MS              100
 #define TRAINER_TASK_UPDATE_FREQ            1000/TRAINER_TASK_UPDATE_MS
+
+// spindown poly fit default coeficient terms
+#define SPINDOWN_A                          -3.8953129211598316f
+#define SPINDOWN_B                          -3.1136961609967565e-05f
+#define SPINDOWN_C                          -0.013957132822213477f
+#define SPINDOWN_D                          8.15173994696997e-05f
 
 // Fudge factors
 #define SYSTEM_INERTIA_COMP_GAIN            1.0f // applied to ke calculation

@@ -22,22 +22,21 @@
 #include "tim.h"
 
 /* USER CODE BEGIN 0 */
-#define F_CLK                     72000000UL
+#define F_CLK                     84000000UL // APB2
 
 // FREQ COUNTER TIM
 #define IDLE                      0
 #define DONE                      1
-#define IC_DIV                    4
-#define IC_FREQ                   F_CLK/IC_DIV // 18 MHz - only sampling a low frequency signal
+#define IC_DIV                    1
+#define IC_FREQ                   F_CLK/IC_DIV
 #define IC_COUNTER_TOP            UINT16_MAX
 
 #define TIMEOUT_PERIOD            5000 // ms
 #define TIMEOUT_OVC_COUNT         ((TIMEOUT_PERIOD * IC_FREQ) / 1000) / IC_COUNTER_TOP
-#define TIMEOUT_OVC_COUNT         500
 
 // PWM TIM
 #define PWM_FREQ 1000UL // roughly
-#define TIMER_PRESCALER 4
+#define TIMER_PRESCALER 32
 #define TIMER_PERIOD_COUNT (uint16_t) (F_CLK / (PWM_FREQ * TIMER_PRESCALER))
 
 volatile static uint8_t sCaptureState = IDLE;
@@ -83,7 +82,7 @@ void MX_TIM2_Init(void)
   sConfigIC.ICSelection = TIM_ICSELECTION_DIRECTTI;
   // dicates sampling frequency of filter F_dts = F_clk [IC_FREQ] / pre
   sConfigIC.ICPrescaler = TIM_ICPSC_DIV2;
-  /* sConfigIC.ICFilter = 0b1000; // fSAMPLING=fDTS/8, N=6 18/2/8 = 1.1 MHz, 6 samples = 187.5 kHz max signal */
+  /* sConfigIC.ICFilter = 0b1000; // fSAMPLING=fDTS/8, N=6 18/4/8 = 1.1 MHz, 6 samples = 187.5 kHz max signal */
   // max
   sConfigIC.ICFilter = 0b1111; // fSAMPLING=fDTS/32, N=8 18/2/32 = 281 kHz, 8 samples = 35 kHz max signal
   // off

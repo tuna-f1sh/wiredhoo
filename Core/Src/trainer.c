@@ -14,8 +14,26 @@
 Trainer_t trainer;
 UserConfig_t user;
 
+float spindown_cf[4] = {
+  SPINDOWN_A,
+  SPINDOWN_B,
+  SPINDOWN_C,
+  SPINDOWN_D
+};
+
 // print buffer
 static char sPrint[64];
+
+// based on known losses to keep flywheel spinning at given speed
+float calculate_static_power(uint32_t rps) {
+  if (rps > 0)
+    return (spindown_cf[0] +
+            (rps * spindown_cf[1]) +
+            (rps * rps * spindown_cf[2]) +
+            (rps * rps * rps * spindown_cf[3]));
+  else
+    return 0.0;
+}
 
 inline uint32_t calculate_flywheel_rps(uint32_t light_freq) {
   // divide the light gate frequency by the number of segments per revolution for the revolutions per second of the flywheel
@@ -41,15 +59,15 @@ float calculate_rider_power(float delta_ke, uint16_t update_freq) {
   // change is calculated plus spin down curve losses because energy must be input if spinning (with or without change in speed)
   rider_input_ke = delta_ke /*- spindown delta at speed - emf*/;
 
-  // power is the change in ke with respect to time (tick rate of task)
-  power = rider_input_ke * update_freq;
+  // power is the change in ke with respect to time (tick rate of task) + static power required to keep flywheel not slowing
+  power = (rider_input_ke * update_freq) + (calculate_static_power(gsystem.rps) * -1);
 
   // return with any defined compensation gain
   return power * RIDER_POWER_COMP_GAIN;
 }
 
 // TODO spindown routine: do a system power calculation from 36 km/h down to ~0
-float calculate_system_power(float delta_ke, uint16_t update_freq) {
+inline float calculate_system_power(float delta_ke, uint16_t update_freq) {
   return delta_ke * update_freq;
 }
 
@@ -80,7 +98,6 @@ void trainer_init(void) {
 
 void trainer_run(void *argument) {
   TickType_t last_tick;
-  uint16_t freq = 1000;
   uint16_t len = 0;
 
   printf("Trainer Task Starting\r\n");
@@ -92,7 +109,9 @@ void trainer_run(void *argument) {
   trainer_init();
 
   if (DEBUG_TRAINER) {
-    len = sprintf(sPrint, "rps,omega,ke,rider_power,speed\r\n");
+    // hold so serial is stable and header is captured
+    vTaskDelay(2000);
+    len = sprintf(sPrint, "rps,omega,ke,rider_power,speed,static_power\r\n");
     thread_printf((uint8_t*) sPrint, len, 10);
   }
 
@@ -136,24 +155,27 @@ void trainer_run(void *argument) {
     gsystem.emf = get_emfsense();
 
     if (DEBUG_TRAINER) {
-      len = sprintf(sPrint, "%lu,%lu,%lu,%d,%d\r\n",
+      len = sprintf(sPrint, "%lu,%lu,%lu,%d,%d,%ld\r\n",
           (long unsigned int) gsystem.rps,
           (long unsigned int) (gsystem.omega * 1000),
           (long unsigned int) (gsystem.ke * 1000),
           trainer.power,
-          trainer.speed
+          trainer.speed,
+          (long signed int) (calculate_static_power(gsystem.rps) * 1000)
       );
       thread_printf((uint8_t*) sPrint, len, 0);
     }
 
-    if (freq < (1000 * 10)) {
-      freq += 100;
-    } else {
-      freq = 1000;
-    }
+    // TODO for testing timer capture
+    /* uint16_t freq = 1000; */
+    /* if (freq < 100) { */
+    /*   freq += 10; */
+    /* } else { */
+    /*   freq = 10; */
+    /* } */
 
-    tim3_pwm_set_freq(freq);
-    tim3_pwm_set_duty(TIM_CHANNEL_1, 50);
+    /* tim3_pwm_set_freq(10); */
+    /* tim3_pwm_set_duty(TIM_CHANNEL_1, 50); */
   }
 }
 

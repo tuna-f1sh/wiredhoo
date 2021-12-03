@@ -15,10 +15,10 @@ def first_order(x, a, b):
 
 # polyfit function, 3rd order
 def third_order(x, a, b, c, d):
-    return (a * x) + (b * x**2) + (c * x**3) + d
+    return a + (b * x) + (c * x**2) + (d * x**3)
 
-def diff_third_order(dt, a, b, c):
-    return a + (b *  dt) + (2 * c * dt)
+def diff_third_order(x, b, c, d):
+    return b + (2 * c * x) + (3 * d * (x ** 2))
 
 def pre_process_spindown(spindown: pd.DataFrame, exit_rps: int = 16, update_freq=10):
     # remove zeros
@@ -30,7 +30,7 @@ def pre_process_spindown(spindown: pd.DataFrame, exit_rps: int = 16, update_freq
     ret = ret[maxi:]
 
     # extract only change and decay in rps since only this will change ke
-    ret = ret[ret.rps.diff() < 0.0]
+    ret = ret.loc[(ret.rps.diff() < 0.0)]
     # trim end and anything increasing again
     ret = ret[ret.rps > exit_rps]
 
@@ -42,14 +42,14 @@ def pre_process_spindown(spindown: pd.DataFrame, exit_rps: int = 16, update_freq
     # find change in ke
     ret["ke_delta"] = ret["ke"].diff()
     # check it's always decaying
-    ret = ret[ret.ke_delta < 0.0]
+    ret = ret.loc[(ret.ke_delta < 0.0)]
 
     # since we've dropped points, put an elapsed so we can keep with respect to time
     ret["elapsed"] = (ret.index - maxi) / update_freq
 
     return ret
 
-def generate_spindown_fit(spindown: pd.DataFrame):
+def generate_spindown_fit(spindown: pd.DataFrame, ke_differential=True):
     """
     Use spindown data to fit a curve of energy loss wrt for a given speed
 
@@ -59,32 +59,31 @@ def generate_spindown_fit(spindown: pd.DataFrame):
     fitted_speed = third_order(spindown["elapsed"], speed_terms[0], speed_terms[1], speed_terms[2], speed_terms[3])
 
     ke_terms, _ = curve_fit(third_order, spindown["elapsed"], spindown["ke"])
-    fitted_ke = third_order(spindown["elapsed"], ke_terms[0], ke_terms[1], ke_terms[2], ke_terms[3])
+    # fitted_ke = third_order(spindown["elapsed"], ke_terms[0], ke_terms[1], ke_terms[2], ke_terms[3])
 
     # differentiate for delta ke
-    diff_ke = diff_third_order(spindown["elapsed"], ke_terms[0], ke_terms[1], ke_terms[2])
-    # or use fitted calculated change
-    ke_delta_terms, _ = curve_fit(third_order, spindown["elapsed"], spindown["ke_delta"])
-    fitted_delta = third_order(spindown["elapsed"], ke_delta_terms[0], ke_delta_terms[1], ke_delta_terms[2], ke_delta_terms[3])
+    if ke_differential:
+        diff_ke = diff_third_order(spindown["elapsed"], ke_terms[1], ke_terms[2], ke_terms[3])
+        spindown_terms, _ = curve_fit(third_order, fitted_speed, diff_ke) # using differential
+    else:
+        # or use fitted calculated change
+        ke_delta_terms, _ = curve_fit(third_order, spindown["elapsed"], spindown["ke_delta"])
+        fitted_delta = third_order(spindown["elapsed"], ke_delta_terms[0], ke_delta_terms[1], ke_delta_terms[2], ke_delta_terms[3])
+        spindown_terms, _ = curve_fit(third_order, fitted_speed, fitted_delta) # using delta
 
-    # spindown_terms, _ = curve_fit(third_order, fitted_speed, diff_ke) # using differential
-    spindown_terms, _ = curve_fit(third_order, fitted_speed, fitted_delta) # using delta
     spindown_curve = third_order(spindown["rps"], spindown_terms[0], spindown_terms[1], spindown_terms[2], spindown_terms[3])
 
     return spindown_terms, spindown_curve
 
-def post_process_run(run: pd.DataFrame, spindown_terms, update_freq=10, system_i=0.024664):
+def post_process_run(run: pd.DataFrame, spindown_terms, update_freq=10, system_i=0.024664, differential=True):
 
     def moving_average(x, w):
         return np.convolve(x, np.ones(w), 'valid') / w
 
-    # ret = run.loc[~(run==0).all(axis=1)]
-    ret = run
-    # ret = ret[ret.rps.diff() != 0]
+    ret = run.copy()
 
     # drop erronous values
-    ret = ret[ret.rps < 100] # to big
-    ret = ret[ret.rps.diff() < 5] # sudden change
+    ret = ret.loc[(ret.rps < 100)] # to big
 
     ret.omega = [angular_vecloity(rps) for rps in ret.rps]
     ret.ke = [kinetic_energy(omega, system_i) for omega in ret.omega]
@@ -92,17 +91,33 @@ def post_process_run(run: pd.DataFrame, spindown_terms, update_freq=10, system_i
 
     ret["ke_delta"] = ret["ke"].diff()
 
+    pos_change = ret.loc[(ret.ke_delta > 0)]
+    neg_change = ret.loc[(ret.ke_delta < 0)]
+    ret["rider_input"] = pos_change.loc[(pos_change.ke_delta.diff() > 0)]["ke_delta"].reindex(ret["ke_delta"].index, method='ffill') * 10 # rider input
+    ret["electrical_input"] = neg_change.loc[neg_change.ke_delta.diff() < 0]["ke_delta"].reindex(ret["ke_delta"].index, method='ffill') # electrical power?
+
     ret["elapsed"] = ret.index * 1/update_freq
 
-    ret["power_static"] = -1 * (third_order(ret["rps"], spindown_terms[0], spindown_terms[1], spindown_terms[2], spindown_terms[3]) / ret["elapsed"].diff()) # using delta
-    # ret["power_static"] = -1 * (third_order(ret["rps"], spindown_terms[0], spindown_terms[1], spindown_terms[2], spindown_terms[3])) # using differtial
-    ret["power_acceleration"] = (ret["ke_delta"] / ret["elapsed"].diff()) 
+    if differential:
+        ret["power_static"] = -1 * (third_order(ret["rps"], spindown_terms[0], spindown_terms[1], spindown_terms[2], spindown_terms[3]))
+        # static ke loss is differential multipled by time step
+        ret["ke_static"] = ret["power_static"] * ret["elapsed"].diff()
+    else:
+        ret["ke_static"] = -1 * (third_order(ret["rps"], spindown_terms[0], spindown_terms[1], spindown_terms[2], spindown_terms[3]))
+        # power is the change in ke with time
+        ret["power_static"] = (ret["ke_static"] / ret["elapsed"].diff())
 
-    filtered_ps = moving_average(ret["power_static"], 10)
-    filtered_pa = moving_average(ret["power_acceleration"], 20)
+    # change in energy with time
+    ret["power_acceleration"] = (ret["ke_delta"] / ret["elapsed"].diff())
+
+    filtered_ps = moving_average(ret["power_static"], 10) # 1 second
+    filtered_pa = moving_average(ret["power_acceleration"], 10) # 1 second
+
     # match others after filter
     ret = ret[:len(filtered_pa)]
     filtered_ps = filtered_ps[:len(filtered_pa)]
+    ret["filtered_pa"] = filtered_pa
+    ret["filtered_ps"] = filtered_ps
 
     # rider power is change in energy due to speed - known losses fround with spindown wrt
     ret["rider_power"] = filtered_ps + filtered_pa
@@ -125,28 +140,32 @@ def trainer_speed(rps: int, flywheel_ratio: int, wheel_circumference: int):
     """
     return int((rps * flywheel_ratio * wheel_circumference) / 100)
 
+ke_differential = True
 spindown = read_stream('ref/spindown_b1111_3_zwift.csv')
 sd = pre_process_spindown(spindown, update_freq=10)
-sd_terms, sd_curve = generate_spindown_fit(sd)
+sd_terms, sd_curve = generate_spindown_fit(sd, ke_differential=ke_differential)
 
-race = read_stream('ref/zwift_race.csv')
-pr = post_process_run(race, sd_terms, update_freq=10)
+# race = read_stream('ref/zwift_race.csv')
+race = read_stream('ref/zwift_race2.csv')
+pr = post_process_run(race, sd_terms, update_freq=10, differential=ke_differential)
+
+print(f"Spindown coeficients (a + bx + cx^2 + dx^3), a: {sd_terms[0]}, b: {sd_terms[1]}, c: {sd_terms[2]}, d: {sd_terms[3]}")
 
 # raw plot
-# fig = px.line(spindown, y="rps", labels={"rps":"revs per second"}, title="kickr spindown light transistor sampling")
-# fig.show()
+fig = px.line(spindown, y="rps", labels={"rps":"revs per second"}, title="kickr spindown light transistor sampling")
+fig.show()
 
 # plot decay
 # fig = px.line(sd, y="ke", x="elapsed", labels={"ke_delta":"change in ke"}, title="kickr spindown kinetic energy decay")
 # fig.show()
 
 # spindown curve
-# fig = px.line(y=sd["ke_delta"] * -1, x=sd_curve * -1, title="kickr spindown fitted rps and change in ke")
+# fig = px.line(y=sd_curve * -1, title="kickr spindown fitted rps and change in ke")
 # fig.show()
-# fake_rps = np.arange(0,50,1)
-# ke_loss = third_order(fake_rps, sd_terms[0], sd_terms[1], sd_terms[2], sd_terms[3])
-# fig = px.line(y=ke_loss, x=fake_rps, labels={"y":"change in ke"}, title="kickr spindown fitted rps and change in ke for energy loss at given rps")
-# fig.show()
+fake_rps = np.arange(0,50,1)
+static_power = third_order(fake_rps, sd_terms[0], sd_terms[1], sd_terms[2], sd_terms[3])
+fig = px.line(y=static_power, x=fake_rps, labels={"y":"power (W)"}, title="kickr spindown fitted differential ke/rps for power loss at given rps")
+fig.show()
 
-fig = px.line(pr, y=['rider_power', 'rps'], x='elapsed', title="kickr light transistor sampling power inference with spindown comp Zwift race")
+fig = px.line(pr, y=["rider_input", "electrical_input", "ke_delta", 'rider_power', 'rps', "power_acceleration", "filtered_pa", "filtered_ps", "ke_static"], x='elapsed', title="kickr light transistor sampling power inference with spindown comp Zwift race")
 fig.show()

@@ -49,6 +49,7 @@ Core/Src/utilities.c \
 Core/Src/ant.c \
 Core/Src/trainer.c \
 Core/Src/syscalls.c \
+Core/Src/polyfit.c \
 Core/Src/stm32f4xx_it.c \
 Core/Src/stm32f4xx_hal_msp.c \
 Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_tim.c \
