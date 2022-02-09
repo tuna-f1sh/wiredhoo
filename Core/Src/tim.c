@@ -32,7 +32,8 @@
 #define IC_COUNTER_TOP            UINT16_MAX
 
 #define TIMEOUT_PERIOD            5000 // ms
-#define TIMEOUT_OVC_COUNT         ((TIMEOUT_PERIOD * IC_FREQ) / 1000) / IC_COUNTER_TOP
+/* #define TIMEOUT_OVC_COUNT         ((TIMEOUT_PERIOD * IC_FREQ) / 1000) / IC_COUNTER_TOP */
+#define TIMEOUT_OVC_COUNT 1000
 
 // PWM TIM
 #define PWM_FREQ 1000UL // roughly
@@ -264,17 +265,14 @@ uint32_t tim2_calc_frequency(void) {
 
 void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef* htim) {
   if (htim->Instance == TIM2) {
-
     // first sample
     if(sCaptureState == IDLE) {
-
       sTick = TIM2->CCR1;
       sTIM2_OVC = 0;
       sCaptureState = DONE;
 
     // after first, T1 updates during calculation
     } else if(sCaptureState == DONE) {
-
       if (xSemaphoreTakeFromISR(xTim2Semaphore, NULL) == pdTRUE) {
         // calculate period in ticks since last T1 using current count value as T2
         sTicks = (TIM2->CCR1 + (sTIM2_OVC * (IC_COUNTER_TOP + 1))) - sTick;
@@ -296,7 +294,6 @@ void tim2_period_elapsed_callback(void) {
 
   // else, timeout so set freq to zero
   } else {
-
     if (xSemaphoreTakeFromISR(xTim2Semaphore, NULL) == pdTRUE) {
       // clear tick count will read from
       sTicks = 0;
@@ -304,7 +301,6 @@ void tim2_period_elapsed_callback(void) {
       // reset state for new measurement
       sCaptureState = IDLE;
     }
-
   }
 }
 

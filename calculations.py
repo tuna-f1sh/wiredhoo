@@ -141,12 +141,14 @@ def trainer_speed(rps: int, flywheel_ratio: int, wheel_circumference: int):
     return int((rps * flywheel_ratio * wheel_circumference) / 100)
 
 ke_differential = True
-spindown = read_stream('ref/spindown_b1111_3_zwift.csv')
+# spindown = read_stream('ref/spindown_b1111_3_zwift.csv')
+spindown = read_stream('spindown-031221T1655.csv')
 sd = pre_process_spindown(spindown, update_freq=10)
 sd_terms, sd_curve = generate_spindown_fit(sd, ke_differential=ke_differential)
 
 # race = read_stream('ref/zwift_race.csv')
-race = read_stream('ref/zwift_race2.csv')
+# race = read_stream('ref/zwift_race2.csv')
+race = read_stream('ride-031221T1655.csv')
 pr = post_process_run(race, sd_terms, update_freq=10, differential=ke_differential)
 
 print(f"Spindown coeficients (a + bx + cx^2 + dx^3), a: {sd_terms[0]}, b: {sd_terms[1]}, c: {sd_terms[2]}, d: {sd_terms[3]}")

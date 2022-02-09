@@ -86,7 +86,7 @@ void trainer_init(void) {
 
   // tim3 for emf control
   tim3_pwm_init();
-  tim3_pwm_set_duty(TIM_CHANNEL_1, 50);
+  tim3_pwm_set_duty(TIM_CHANNEL_1, 0);
 
   // setup trainer vars
   memset(&trainer, 0, sizeof(Trainer_t));
@@ -120,6 +120,7 @@ void trainer_run(void *argument) {
     // execute at the update tick
     vTaskDelayUntil(&last_tick, TRAINER_TASK_UPDATE_MS);
 
+    // TODO gsystem and trainer structs should have semaphore to avoid race with ANT+ task
     // get revs per second using frequency capture
     gsystem.rps = calculate_flywheel_rps(tim2_calc_frequency());
     // then angular velocity (rad/s) using this
