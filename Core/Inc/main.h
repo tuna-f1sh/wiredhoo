@@ -75,6 +75,10 @@ void thread_printf(uint8_t* pBuffer, size_t len, uint8_t block_tick);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
+#define BOARD_DEV 0
+#define BOARD_FEATHER 1
+#define BOARD BOARD_FEATHER
+
 #define VSENSE_Pin GPIO_PIN_0
 #define VSENSE_GPIO_Port GPIOA
 #define ISENSE_Pin GPIO_PIN_1
@@ -87,6 +91,10 @@ void thread_printf(uint8_t* pBuffer, size_t len, uint8_t block_tick);
 #define GLED_GPIO_Port GPIOB
 #define BLED_Pin GPIO_PIN_2
 #define BLED_GPIO_Port GPIOB
+#define FEATHER_USART3_TX_Pin GPIO_PIN_10
+#define FEATHER_USART3_TX_GPIO_Port GPIOB
+#define FEATHER_USART3_RX_Pin GPIO_PIN_11
+#define FEATHER_USART3_RX_GPIO_Port GPIOB
 /* USER CODE BEGIN Private defines */
 #define DEBUG                     1
 #define DEBUG_ANT                 DEBUG && 0 // send ant data to uart
